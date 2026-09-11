@@ -1,13 +1,13 @@
-package com.implatform;
+package com.him.imserver;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class ImPlatformApplication {
+public class ImServerApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(ImPlatformApplication.class, args);
+        SpringApplication.run(ImServerApplication.class, args);
     }
 
 }
