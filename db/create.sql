@@ -47,3 +47,20 @@ create table `im_file_info`
     key               `idx_md5` (md5)
 ) engine = innodb charset = utf8mb4 comment '文件';
 
+create table `im_private_message`
+(
+    `id`        bigint      not null auto_increment primary key comment 'id',
+    `local_id`  varchar(32) comment '业务id,由前端生成',
+    `seq_no`    int         not null comment '序列号,单个会话消息的序号连续递增',
+    `send_id`   bigint      not null comment '发送用户id',
+    `recv_id`   bigint      not null comment '接收用户id',
+    `conv_key`  varchar(64) not null comment '会话key，格式:userId1_userId2',
+    `content`   text character set utf8mb4 comment '发送内容',
+    `type`      tinyint     not null comment '消息类型 0:文字 1:图片 2:文件 3:语音 4:视频 21:提示',
+    `status`    tinyint     not null comment '状态 0:未读 1:已发送 2:撤回 3:已读',
+    `send_time` datetime(3) default current_timestamp(3) comment '发送时间',
+    key         `idx_conv_key_seq_no`(`conv_key`,`seq_no`),
+    key         `idx_send_recv_id` (`send_id`, `recv_id`,`id`),
+    key         `idx_recv_id` (`recv_id`)
+) engine = innodb charset = utf8mb4 comment '私聊消息';
+
