@@ -16,6 +16,7 @@ import com.him.implatform.entity.User;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.UserMapper;
+import com.him.implatform.service.FriendService;
 import com.him.implatform.service.UserService;
 import com.him.implatform.session.UserSession;
 import com.him.implatform.vo.LoginVO;

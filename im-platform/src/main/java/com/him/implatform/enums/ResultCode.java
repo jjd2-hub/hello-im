@@ -53,7 +53,11 @@ public enum ResultCode {
     /**
      * 上传文件不符合约定
      */
-    FILE_NOT_RIGHT(10009,"上传文件不符合规定");
+    FILE_NOT_RIGHT(10009,"上传文件不符合规定"),
+    /**
+     * 不能对自己操作
+     */
+    CAN_NOT_OPERATE_SELF(10010,"不能对自己操作");
 
     private final int code;
     private final String msg;

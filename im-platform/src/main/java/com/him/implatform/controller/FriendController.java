@@ -25,9 +25,7 @@ public class FriendController {
     @Operation(summary = "好友列表")
     @GetMapping("/list")
     public Result<List<FriendVO>> findFriends(@RequestParam(defaultValue = "0") Long version) {
-        // TODO 完善获取好友列表逻辑
-        List<FriendVO> list = new ArrayList<>();
-        return Result.success(list);
+        return Result.success(friendService.findFriends(version));
     }
 
     @Operation(summary = "添加好友")

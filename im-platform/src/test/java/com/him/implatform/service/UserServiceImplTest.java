@@ -2,13 +2,18 @@ package com.him.implatform.service;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.him.implatform.config.props.JwtProperties;
+import com.him.implatform.context.UserContext;
 import com.him.implatform.dto.LoginDTO;
+import com.him.implatform.dto.ModifyPwdDTO;
 import com.him.implatform.dto.RegisterDTO;
 import com.him.implatform.entity.User;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.UserMapper;
 import com.him.implatform.service.impl.UserServiceImpl;
+import com.him.implatform.session.UserSession;
+import com.him.implatform.vo.UserVO;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.lang.reflect.Field;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -195,5 +201,182 @@ class UserServiceImplTest {
         assertNotNull(result.getRefreshToken());
         assertEquals(1800, result.getAccessTokenExpiresIn());
         assertEquals(604800, result.getRefreshTokenExpiresIn());
+    }
+
+    // ==================== findUserById 按ID查找用户 ====================
+
+    @Test
+    @DisplayName("按ID查找 - 用户存在应返回UserVO")
+    void findUserById_exists_shouldReturnUserVO() {
+        User user = new User();
+        user.setId(1L);
+        user.setUsername("testuser");
+        user.setNickname("测试用户");
+
+        when(userMapper.selectById(1L)).thenReturn(user);
+
+        UserVO result = userService.findUserById(1L);
+
+        assertNotNull(result);
+        assertEquals("testuser", result.getUsername());
+        assertEquals("测试用户", result.getNickname());
+    }
+
+    @Test
+    @DisplayName("按ID查找 - 用户不存在应抛异常")
+    void findUserById_notExists_shouldThrowException() {
+        when(userMapper.selectById(999L)).thenReturn(null);
+
+        GlobalException ex = assertThrows(GlobalException.class, () -> userService.findUserById(999L));
+        assertEquals(ResultCode.USER_NOT_EXISTS.getCode(), ex.getCode());
+    }
+
+    // ==================== findUserByName 按名字查找用户 ====================
+
+    @Test
+    @DisplayName("按名字查找 - 应返回匹配的用户列表")
+    void findUserByName_shouldReturnMatchedUsers() {
+        User user1 = new User();
+        user1.setId(1L);
+        user1.setUsername("zhangsan");
+        user1.setNickname("张三");
+
+        User user2 = new User();
+        user2.setId(2L);
+        user2.setUsername("lisi");
+        user2.setNickname("张三丰");
+
+        when(userMapper.selectList(any())).thenReturn(List.of(user1, user2));
+
+        List<UserVO> result = userService.findUserByName("张");
+
+        assertEquals(2, result.size());
+        assertEquals("zhangsan", result.get(0).getUsername());
+        assertEquals("lisi", result.get(1).getUsername());
+    }
+
+    @Test
+    @DisplayName("按名字查找 - 无匹配应返回空列表")
+    void findUserByName_noMatch_shouldReturnEmptyList() {
+        when(userMapper.selectList(any())).thenReturn(List.of());
+
+        List<UserVO> result = userService.findUserByName("不存在的名字");
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+    // ==================== modifyPwd 修改密码 ====================
+
+    @BeforeEach
+    void setUpUserContext() {
+        UserSession session = new UserSession();
+        session.setUserId(1L);
+        UserContext.set(session);
+    }
+
+    @AfterEach
+    void cleanUserContext() {
+        UserContext.remove();
+    }
+
+    @Test
+    @DisplayName("修改密码 - 旧密码正确应成功")
+    void modifyPwd_oldPasswordCorrect_shouldSuccess() {
+        ModifyPwdDTO dto = new ModifyPwdDTO();
+        dto.setOldPwd("oldpwd");
+        dto.setNewPwd("newpwd");
+
+        User user = new User();
+        user.setId(1L);
+        user.setPassword("$2a$10$encoded_old");
+
+        when(userMapper.selectById(1L)).thenReturn(user);
+        when(passwordEncoder.matches("oldpwd", "$2a$10$encoded_old")).thenReturn(true);
+        when(passwordEncoder.encode("newpwd")).thenReturn("$2a$10$encoded_new");
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        assertDoesNotThrow(() -> userService.modifyPwd(dto));
+
+        verify(userMapper, times(1)).updateById(any(User.class));
+    }
+
+    @Test
+    @DisplayName("修改密码 - 旧密码错误应抛异常")
+    void modifyPwd_oldPasswordWrong_shouldThrowException() {
+        ModifyPwdDTO dto = new ModifyPwdDTO();
+        dto.setOldPwd("wrongold");
+        dto.setNewPwd("newpwd");
+
+        User user = new User();
+        user.setId(1L);
+        user.setPassword("$2a$10$encoded_old");
+
+        when(userMapper.selectById(1L)).thenReturn(user);
+        when(passwordEncoder.matches("wrongold", "$2a$10$encoded_old")).thenReturn(false);
+
+        GlobalException ex = assertThrows(GlobalException.class, () -> userService.modifyPwd(dto));
+        assertEquals(ResultCode.PASSWORD_ERROR.getCode(), ex.getCode());
+
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    // ==================== update 修改用户信息 ====================
+
+    @Test
+    @DisplayName("修改用户信息 - 用户存在应成功")
+    void update_userExists_shouldSuccess() {
+        UserSession session = new UserSession();
+        session.setUserId(2L); // 当前登录用户是2
+        UserContext.set(session);
+
+        UserVO vo = new UserVO();
+        vo.setId(1L); // 要修改的用户是1
+        vo.setNickname("新昵称");
+        vo.setSex(1);
+        vo.setSignature("新签名");
+
+        User user = new User();
+        user.setId(1L);
+        user.setNickname("旧昵称");
+
+        when(userMapper.selectById(1L)).thenReturn(user);
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        assertDoesNotThrow(() -> userService.update(vo));
+
+        verify(userMapper, times(1)).updateById(any(User.class));
+    }
+
+    @Test
+    @DisplayName("修改用户信息 - 不能修改自己的信息应抛异常")
+    void update_operateSelf_shouldThrowException() {
+        UserSession session = new UserSession();
+        session.setUserId(1L); // 当前登录用户是1
+        UserContext.set(session);
+
+        UserVO vo = new UserVO();
+        vo.setId(1L); // 要修改的用户也是1（自己）
+
+        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(vo));
+        assertEquals(ResultCode.CAN_OPERATE_OTHER_USER.getCode(), ex.getCode());
+
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    @DisplayName("修改用户信息 - 用户不存在应抛异常")
+    void update_userNotFound_shouldThrowException() {
+        UserSession session = new UserSession();
+        session.setUserId(2L);
+        UserContext.set(session);
+
+        UserVO vo = new UserVO();
+        vo.setId(999L);
+
+        when(userMapper.selectById(999L)).thenReturn(null);
+
+        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(vo));
+        assertEquals(ResultCode.USER_NOT_EXISTS.getCode(), ex.getCode());
     }
 }
