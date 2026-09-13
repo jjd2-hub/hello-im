@@ -12,7 +12,7 @@ create table `im_user`
     `type`             smallint      default 1 comment '用户类型 1:普通用户 2:审核账户',
     `signature`        varchar(1024) default '' comment '个性签名',
     `last_login_time`  datetime      default null comment '最后登录时间',
-    `created_time`     datetime      default current_timestamp comment '创建时间',
+    `create_time`     datetime      default current_timestamp comment '创建时间',
     unique key `idx_user_name` (username),
     key                `idx_nick_name` (nickname)
 ) engine = innodb charset = utf8mb4 comment '用户';
@@ -26,7 +26,7 @@ create table `im_friend`
     `friend_head_image` varchar(255) default '' comment '好友头像',
     `is_dnd`            tinyint comment '免打扰标识(do not disturb)  0:关闭   1:开启',
     `deleted`           tinyint comment '删除标识  0：正常   1：已删除',
-    `created_time`      datetime     default current_timestamp comment '创建时间',
+    `create_time`      datetime     default current_timestamp comment '创建时间',
     `version`           BIGINT       DEFAULT 0 comment '版本号',
     UNIQUE KEY `idx_user_friend_id` (`user_id`, `friend_id`),
     key                 `idx_friend_id` (`friend_id`)

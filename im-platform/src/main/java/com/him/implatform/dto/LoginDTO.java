@@ -1,5 +1,6 @@
 package com.him.implatform.dto;
 
+import com.him.implatform.annotation.LogSensitive;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
@@ -14,5 +15,6 @@ public class LoginDTO {
 
     @Schema(description = "用户密码")
     @NotEmpty(message = "用户密码不能为空")
+    @LogSensitive
     private String password;
 }
