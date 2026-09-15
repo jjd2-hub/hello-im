@@ -31,28 +31,27 @@ public class FriendController {
     @Operation(summary = "添加好友")
     @PostMapping("/add")
     public Result<?> addFriend(@NotNull(message = "好友id不能为空") @RequestParam Long friendId) {
-        // TODO 完善添加好友逻辑
+        friendService.addFriend(friendId);
         return Result.success();
     }
 
     @Operation(summary = "查找好友信息")
     @GetMapping("/find/{friendId}")
     public Result<FriendVO> findFriend(@NotNull(message = "好友id不能为空") @PathVariable Long friendId) {
-        // TODO 完善查找好友信息逻辑
-        return Result.success();
+        return Result.success(friendService.findFriend(friendId));
     }
 
     @Operation(summary = "删除好友")
     @DeleteMapping("/delete/{friendId}")
     public Result<?> deleteFriend(@NotNull(message = "好友id不能为空") @PathVariable Long friendId) {
-        // TODO 完善删除好友逻辑
+        friendService.delFriend(friendId);
         return Result.success();
     }
 
     @Operation(summary = "开启/关闭免打扰模式")
     @PutMapping("/dnd")
-    public Result<?> setFriendDnd(@Valid @RequestBody FriendDndDTO friendDndDTO) {
-        // TODO 完善开启/关闭免打扰模式
+    public Result<?> setFriendDnd(@Valid @RequestBody FriendDndDTO dto) {
+        friendService.setDnd(dto);
         return Result.success();
     }
 

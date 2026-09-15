@@ -57,7 +57,11 @@ public enum ResultCode {
     /**
      * 不能对自己操作
      */
-    CAN_NOT_OPERATE_SELF(10010,"不能对自己操作");
+    CAN_NOT_OPERATE_SELF(10010,"不能对自己操作"),
+    /**
+     * 对方和您没有关联
+     */
+    HAS_NO_RELATION_WITH_TARGET(10011,"对方和您没有关联");
 
     private final int code;
     private final String msg;
