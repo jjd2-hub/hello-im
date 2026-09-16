@@ -140,6 +140,15 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         // sendSyncDndMessage(dto.getFriendId(),dto.getIsDnd());
     }
 
+    @Override
+    public List<Friend> findByFriendIds(List<Long> friendIds) {
+        Long userId= UserContext.getUserId();
+        LambdaQueryWrapper<Friend> wrapper= Wrappers.lambdaQuery();
+        wrapper.eq(Friend::getUserId,userId).in(Friend::getFriendId,friendIds);
+        wrapper.eq(Friend::getDeleted,false);
+        return this.list(wrapper);
+    }
+
 
     private FriendVO convert(Friend f) {
         FriendVO vo=new FriendVO();

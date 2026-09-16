@@ -61,7 +61,23 @@ public enum ResultCode {
     /**
      * 对方和您没有关联
      */
-    HAS_NO_RELATION_WITH_TARGET(10011,"对方和您没有关联");
+    HAS_NO_RELATION_WITH_TARGET(10011,"对方和您没有关联"),
+    /**
+     * 没有该资源
+     */
+    HAS_NO_THIS_RESOURCE(10012,"没有这个资源"),
+    /**
+     * 您未加入这个群聊
+     */
+    YOU_NOT_IN_GROUP(10013,"您不在这个群聊里面"),
+    /**
+     * 资源不能访问
+     */
+    CAN_NOT_ALLOW(10014,"该资源不能访问"),
+    /**
+     * 超越了规定
+     */
+    FILL_MAX_ALLOW(10015,"数量或权限超过规定");
 
     private final int code;
     private final String msg;

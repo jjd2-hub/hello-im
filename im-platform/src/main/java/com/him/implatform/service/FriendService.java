@@ -5,7 +5,9 @@ import com.him.implatform.dto.FriendDndDTO;
 import com.him.implatform.entity.Friend;
 import com.him.implatform.vo.FriendVO;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
@@ -61,4 +63,11 @@ public interface FriendService extends IService<Friend> {
      * @param dto 免打扰DTO
      */
     void setDnd(@Valid FriendDndDTO dto);
+
+    /**
+     * 根据朋友id找到朋友
+     * @param friendIds ids
+     * @return 朋友
+     */
+    List<Friend> findByFriendIds(@Size(max = 50, message = "一次最多只能邀请50位用户") @NotEmpty(message = "群id不可为空") List<Long> friendIds);
 }
