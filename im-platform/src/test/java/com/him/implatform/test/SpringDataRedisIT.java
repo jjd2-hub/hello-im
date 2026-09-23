@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.*;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -13,12 +14,16 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Redis 连接测试
- * 测试 RedisTemplate 各种数据结构的操作是否正常
+ * Redis 连接测试(集成测试)
+ *
+ * 这是集成测试,需要本机 Redis 已启动,所以命名为 *IT:由 failsafe 在 mvn verify 阶段执行,
+ * 不会被 mvn test 带上——否则谁 clone 下来都得先把 Redis 开起来才能跑单元测试。
+ * 使用 test profile,落在 Redis db 15,不会影响开发库(db 10)。
  */
 @SpringBootTest
+@ActiveProfiles("test")
 @DisplayName("Redis 连接测试")
-class SpringDataRedisTest {
+class SpringDataRedisIT {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
