@@ -192,12 +192,58 @@ class GroupMessageServiceImplTest {
         GroupMessageVO vo1 = result.get(0);
         assertFalse(vo1.getDeleted(), "消息1没被删除");
         assertEquals(List.of(2L, 3L), vo1.getAtUserIds(), "@用户列表应被解析为List");
-        assertEquals(1, vo1.getReadedCount(), "消息1被成员9读过(位置2>=1),发送者自己也算1人");
+        // 成员9读到位置2(>=1),加上发送者自己,共2人
+        assertEquals(2, vo1.getReadedCount(), "成员9已读 + 发送者本人");
 
         GroupMessageVO vo2 = result.get(1);
         assertTrue(vo2.getDeleted(), "消息2在删除集合里应标记为已删除");
+        // 消息2的发送者就是成员9,已读位置2>=2,不重复计数
         assertEquals(1, vo2.getReadedCount());
         assertTrue(vo2.getAtUserIds().isEmpty());
+    }
+
+    @Test
+    @DisplayName("设置已读 - 全员已读(含发送者)时回执置为完成")
+    void readedMessage_allReaded_shouldCompleteReceipt() {
+        when(groupMemberService.findByGroupAndUserId(GROUP_ID, USER_ID)).thenReturn(member(USER_ID));
+        when(groupMemberService.findUserIdsByGroupId(GROUP_ID)).thenReturn(List.of(USER_ID, 9L));
+
+        // 群里有一条由9发出、需要回执、尚未完成的消息
+        GroupMessage receiptMessage = message(1L, 1L, 9L);
+        receiptMessage.setReceipt(true);
+        receiptMessage.setReceiptOk(false);
+        when(groupMessageMapper.selectList(any())).thenReturn(List.of(receiptMessage));
+        when(groupMessageMapper.updateById(any(GroupMessage.class))).thenReturn(1);
+
+        // 当前用户(1)还没读过;成员9已读到1
+        when(hashOperations.get(anyString(), any())).thenReturn(null);
+        when(hashOperations.entries(anyString())).thenReturn(Map.of("1", 1L, "9", 1L));
+
+        groupMessageService.readedMessage(GROUP_ID, 1L);
+
+        ArgumentCaptor<GroupMessage> captor = ArgumentCaptor.forClass(GroupMessage.class);
+        verify(groupMessageMapper).updateById(captor.capture());
+        assertTrue(captor.getValue().getReceiptOk(), "2名成员都已读,回执应完成");
+    }
+
+    @Test
+    @DisplayName("设置已读 - 还有人没读时回执不能完成")
+    void readedMessage_notAllReaded_shouldNotCompleteReceipt() {
+        when(groupMemberService.findByGroupAndUserId(GROUP_ID, USER_ID)).thenReturn(member(USER_ID));
+        when(groupMemberService.findUserIdsByGroupId(GROUP_ID)).thenReturn(List.of(USER_ID, 8L, 9L));
+
+        GroupMessage receiptMessage = message(1L, 1L, 9L);
+        receiptMessage.setReceipt(true);
+        receiptMessage.setReceiptOk(false);
+        when(groupMessageMapper.selectList(any())).thenReturn(List.of(receiptMessage));
+
+        // 只有1和9读过,成员8没读
+        when(hashOperations.get(anyString(), any())).thenReturn(null);
+        when(hashOperations.entries(anyString())).thenReturn(Map.of("1", 1L, "9", 1L));
+
+        groupMessageService.readedMessage(GROUP_ID, 1L);
+
+        verify(groupMessageMapper, never()).updateById(any(GroupMessage.class));
     }
 
     @Test

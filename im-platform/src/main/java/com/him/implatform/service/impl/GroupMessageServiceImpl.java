@@ -239,14 +239,16 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
         if (Objects.isNull(message) || !groupId.equals(message.getGroupId())) {
             throw new GlobalException(ResultCode.HAS_NO_THIS_RESOURCE.getCode(), "消息不存在");
         }
-        // 已读位置 >= 该消息id的成员即为已读
-        Map<Object, Object> entries = redisTemplate.opsForHash().entries(readedKey(groupId));
-        return entries.entrySet().stream()
-                .filter(e -> Objects.nonNull(e.getValue())
-                        && Long.parseLong(e.getValue().toString()) >= messageId)
-                .map(e -> Long.parseLong(e.getKey().toString()))
-                .sorted()
-                .collect(Collectors.toList());
+        // 已读位置 >= 该消息id的成员即为已读;发送者本人始终算已读
+        Map<Long, Long> positions = loadReadedPositions(groupId);
+        Set<Long> readed = positions.entrySet().stream()
+                .filter(e -> e.getValue() >= messageId)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+        if (Objects.nonNull(message.getSendId())) {
+            readed.add(message.getSendId());
+        }
+        return readed.stream().sorted().collect(Collectors.toList());
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -320,57 +322,56 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
         Map<Long, List<GroupMessage>> byGroup = messages.stream()
                 .collect(Collectors.groupingBy(GroupMessage::getGroupId));
         Set<Long> deletedIds = new HashSet<>();
-        Map<Long, List<Long>> readedPositions = new HashMap<>();
+        Map<Long, Map<Long, Long>> readedPositions = new HashMap<>();
         byGroup.forEach((groupId, list) -> {
             List<Long> ids = list.stream().map(GroupMessage::getId).toList();
             deletedIds.addAll(messageDeletionService.findDeletedMessageIds(userId, ChatType.GROUP, groupId, ids));
-            readedPositions.put(groupId, loadSortedReadedPositions(groupId));
+            readedPositions.put(groupId, loadReadedPositions(groupId));
         });
         return messages.stream().map(m -> {
             GroupMessageVO vo = convert(m);
             vo.setDeleted(deletedIds.contains(m.getId()));
-            List<Long> positions = readedPositions.getOrDefault(m.getGroupId(), List.of());
-            long id = Objects.requireNonNullElse(m.getId(), 0L);
-            long readed = countReaded(positions, id);
-            // 发送者本人也算已读,避免自己发的消息显示为0人已读
-            if (Objects.equals(m.getSendId(), userId) && id > 0) {
-                readed = Math.max(readed, 1);
-            }
-            vo.setReadedCount((int) readed);
+            Map<Long, Long> positions = readedPositions.getOrDefault(m.getGroupId(), Map.of());
+            vo.setReadedCount(countReaded(positions, m));
             return vo;
         }).collect(Collectors.toList());
     }
 
     /**
-     * 取该群所有成员的已读位置并升序排列,便于二分统计已读人数
+     * 取该群成员的已读位置:userId -> 已读到的最大消息id
      */
-    private List<Long> loadSortedReadedPositions(Long groupId) {
+    private Map<Long, Long> loadReadedPositions(Long groupId) {
         Map<Object, Object> entries = redisTemplate.opsForHash().entries(readedKey(groupId));
-        return entries.values().stream()
-                .filter(Objects::nonNull)
-                .map(v -> Long.parseLong(v.toString()))
-                .sorted()
-                .toList();
+        Map<Long, Long> positions = new HashMap<>();
+        entries.forEach((k, v) -> {
+            if (Objects.nonNull(k) && Objects.nonNull(v)) {
+                positions.put(Long.parseLong(k.toString()), Long.parseLong(v.toString()));
+            }
+        });
+        return positions;
     }
 
     /**
-     * 统计已读位置 >= messageId 的成员数
+     * 统计某条消息的已读人数。
+     * 发送者本人没有回执时也要算作已读,否则自己发的消息会显示"0人已读",
+     * 回执消息也会因为等不到发送者自己的已读而永远无法完成
      */
-    private int countReaded(List<Long> sortedPositions, long messageId) {
-        if (messageId <= 0 || sortedPositions.isEmpty()) {
+    private int countReaded(Map<Long, Long> positions, GroupMessage message) {
+        long messageId = Objects.requireNonNullElse(message.getId(), 0L);
+        if (messageId <= 0) {
             return 0;
         }
-        int low = 0;
-        int high = sortedPositions.size();
-        while (low < high) {
-            int mid = (low + high) >>> 1;
-            if (sortedPositions.get(mid) >= messageId) {
-                high = mid;
-            } else {
-                low = mid + 1;
+        int readed = 0;
+        for (Long position : positions.values()) {
+            if (Objects.nonNull(position) && position >= messageId) {
+                readed++;
             }
         }
-        return sortedPositions.size() - low;
+        Long senderPosition = positions.get(message.getSendId());
+        if (Objects.isNull(senderPosition) || senderPosition < messageId) {
+            readed++;
+        }
+        return readed;
     }
 
     /**
@@ -390,12 +391,9 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
         if (memberCount <= 0) {
             return;
         }
-        List<Long> positions = loadSortedReadedPositions(groupId);
+        Map<Long, Long> positions = loadReadedPositions(groupId);
         for (GroupMessage message : messages) {
-            if (Objects.isNull(message.getId())) {
-                continue;
-            }
-            if (countReaded(positions, message.getId()) >= memberCount) {
+            if (countReaded(positions, message) >= memberCount) {
                 message.setReceiptOk(true);
                 this.updateById(message);
                 // TODO 推送"消息已全部已读"回执给发送者(im-client/im-server 完成后实现)
