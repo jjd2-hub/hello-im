@@ -8,7 +8,7 @@ import com.him.imcommon.util.ConvUtil;
 import com.him.implatform.context.UserContext;
 import com.him.implatform.dto.PrivateMessageHistoryDTO;
 import com.him.implatform.entity.PrivateMessage;
-import com.him.implatform.enums.ChatType;
+import com.him.imcommon.enums.ChatType;
 import com.him.implatform.mapper.PrivateMessageMapper;
 import com.him.implatform.service.impl.PrivateMessageServiceImpl;
 import com.him.implatform.session.UserSession;

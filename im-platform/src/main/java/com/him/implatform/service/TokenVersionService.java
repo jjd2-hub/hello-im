@@ -1,6 +1,6 @@
 package com.him.implatform.service;
 
-import com.him.implatform.constant.RedisKey;
+import com.him.imcommon.constant.RedisKey;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;

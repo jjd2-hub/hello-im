@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.him.implatform.constant.RedisKey;
+import com.him.imcommon.constant.RedisKey;
 import com.him.implatform.context.UserContext;
 import com.him.implatform.entity.GroupMember;
 import com.him.implatform.mapper.GroupMemberMapper;

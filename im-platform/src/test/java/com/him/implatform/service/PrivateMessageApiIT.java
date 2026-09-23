@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.him.imcommon.util.ConvUtil;
 import com.him.implatform.BaseIntegrationTest;
 import com.him.implatform.constant.Constant;
-import com.him.implatform.constant.RedisKey;
+import com.him.imcommon.constant.RedisKey;
 import com.him.implatform.entity.PrivateMessage;
 import com.him.implatform.mapper.PrivateMessageMapper;
 import org.apache.commons.lang3.time.DateUtils;

@@ -2,7 +2,7 @@ package com.him.implatform.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.him.implatform.entity.MessageDeletion;
-import com.him.implatform.enums.ChatType;
+import com.him.imcommon.enums.ChatType;
 
 import java.util.Collection;
 import java.util.List;

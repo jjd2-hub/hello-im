@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.him.implatform.entity.MessageDeletion;
-import com.him.implatform.enums.ChatType;
+import com.him.imcommon.enums.ChatType;
 import com.him.implatform.mapper.MessageDeletionMapper;
 import com.him.implatform.service.impl.MessageDeletionServiceImpl;
 import org.apache.ibatis.builder.MapperBuilderAssistant;

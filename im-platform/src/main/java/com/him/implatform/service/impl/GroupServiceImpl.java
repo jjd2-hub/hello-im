@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.him.imcommon.util.BeanUtil;
 import com.him.implatform.constant.Constant;
-import com.him.implatform.constant.RedisKey;
+import com.him.imcommon.constant.RedisKey;
 import com.him.implatform.context.UserContext;
 import com.him.implatform.dto.GroupDndDTO;
 import com.him.implatform.dto.GroupInviteDTO;

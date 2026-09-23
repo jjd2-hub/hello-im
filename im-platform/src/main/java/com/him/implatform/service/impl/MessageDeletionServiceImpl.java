@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.him.implatform.entity.MessageDeletion;
-import com.him.implatform.enums.ChatType;
+import com.him.imcommon.enums.ChatType;
 import com.him.implatform.enums.DeleteType;
 import com.him.implatform.mapper.MessageDeletionMapper;
 import com.him.implatform.service.MessageDeletionService;

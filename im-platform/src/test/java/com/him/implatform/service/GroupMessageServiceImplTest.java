@@ -8,7 +8,7 @@ import com.him.implatform.context.UserContext;
 import com.him.implatform.dto.GroupMessageHistoryDTO;
 import com.him.implatform.entity.GroupMember;
 import com.him.implatform.entity.GroupMessage;
-import com.him.implatform.enums.ChatType;
+import com.him.imcommon.enums.ChatType;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.GroupMessageMapper;
