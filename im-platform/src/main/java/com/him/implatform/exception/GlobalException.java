@@ -12,11 +12,14 @@ public class GlobalException extends RuntimeException implements Serializable {
     private String message;
 
     public GlobalException(ResultCode resultCode) {
+        super(resultCode.getMsg());
         this.code = resultCode.getCode();
         this.message = resultCode.getMsg();
     }
 
     public GlobalException(Integer code, String message) {
+        super(message);
         this.code = code;
+        this.message = message;
     }
 }

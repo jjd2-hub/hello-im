@@ -17,8 +17,11 @@ public class MvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // 只放行注册/登录/刷新token这三个无需登录的接口。
+        // 注意不要写成 /auth/** 或 /file/** 这种前缀通配:一旦以后往这些前缀下新增接口,
+        // 会静默地变成免登录接口。/logout 需要登录态,因此不再放行。
         registry.addInterceptor(authInterceptor).addPathPatterns("/**")
-                .excludePathPatterns("/auth/**", "/logout", "/file/**", "/favicon.ico",
+                .excludePathPatterns("/auth/login", "/auth/register", "/auth/refreshToken", "/favicon.ico",
                         "/swagger/**", "/v3/api-docs/**", "/swagger-resources/**",
                         "/swagger-ui.html", "/swagger-ui/**", "/doc.html");
     }

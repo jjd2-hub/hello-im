@@ -52,12 +52,22 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
     private FriendService friendService;
 
 
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public GroupVO createGroup(GroupVO vo) {
         Long userId = UserContext.getUserId();
         User user = userService.getById(userId);
-        Group group = BeanUtil.copyProperties(vo, Group.class);
+        // 只接受可编辑字段,避免客户端伪造 id/ownerId/isBanned/dissolve
+        Group group = new Group();
+        group.setName(vo.getName());
+        group.setHeadImage(vo.getHeadImage());
+        group.setHeadImageThumb(vo.getHeadImageThumb());
+        group.setNotice(vo.getNotice());
         group.setOwnerId(userId);
+        group.setIsBanned(false);
+        group.setDissolve(false);
+        group.setReason("");
+        group.setCreateTime(new Date());
         this.save(group);
         GroupMember member = new GroupMember();
         member.setUserId(userId);
@@ -88,12 +98,13 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         return convert(group, member);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public GroupVO modifyGroup(GroupVO vo) {
         Long userId = UserContext.getUserId();
         Group group = this.getAndCheckById(vo.getId());
         GroupMember member = groupMemberService.findByGroupAndUserId(group.getId(), userId);
-        if (Objects.isNull(member) || member.getQuit()) {
+        if (Objects.isNull(member) || Boolean.TRUE.equals(member.getQuit())) {
             throw new GlobalException(ResultCode.YOU_NOT_IN_GROUP);
         }
         member.setRemarkNickName(vo.getRemarkNickName());
@@ -101,7 +112,11 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         member.setVersion(groupMemberService.getNextVersion());
         groupMemberService.updateById(member);
         if (group.getOwnerId().equals(userId)) {
-            group = BeanUtil.copyProperties(vo, Group.class);
+            // 只有群主能改群资料,且只更新可编辑字段
+            group.setName(vo.getName());
+            group.setHeadImage(vo.getHeadImage());
+            group.setHeadImageThumb(vo.getHeadImageThumb());
+            group.setNotice(vo.getNotice());
             this.updateById(group);
         }
         log.info("修改群聊,id:{},名称:{}", group.getId(), group.getName());
@@ -149,7 +164,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         List<GroupMember> groupMembers;
         if (version > 0) {
             LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(GroupMember::getUserId, userId).eq(GroupMember::getVersion, version);
+            wrapper.eq(GroupMember::getUserId, userId).gt(GroupMember::getVersion, version);
             groupMembers = groupMemberService.list(wrapper);
         } else {
             groupMembers = groupMemberService.findByUserId(userId);
@@ -164,16 +179,19 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         LambdaQueryWrapper<Group> wrapper = new LambdaQueryWrapper<>();
         wrapper.in(Group::getId, ids);
         List<Group> groups = this.list(wrapper);
-        Map<Long, GroupMember> map = groupMembers.stream().collect(Collectors.toMap(GroupMember::getGroupId, o -> o));
+        // 理论上 (group_id,user_id) 有唯一约束不会重复,这里兜底避免历史脏数据导致 toMap 抛异常
+        Map<Long, GroupMember> map = groupMembers.stream()
+                .collect(Collectors.toMap(GroupMember::getGroupId, o -> o, (first, second) -> second));
         return groups.stream().map(group -> convert(group, map.get(group.getId()))).toList();
     }
 
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public void invite(GroupInviteDTO dto) {
-        Long UserId = UserContext.getUserId();
-        Group group = this.getAndCheckById(UserId);
-        GroupMember member = groupMemberService.findByGroupAndUserId(dto.getGroupId(), UserId);
-        if (Objects.isNull(group) || member.getQuit()) {
+        Long userId = UserContext.getUserId();
+        Group group = this.getAndCheckById(dto.getGroupId());
+        GroupMember member = groupMemberService.findByGroupAndUserId(dto.getGroupId(), userId);
+        if (Objects.isNull(member) || Boolean.TRUE.equals(member.getQuit())) {
             throw new GlobalException(ResultCode.YOU_NOT_IN_GROUP);
         }
         List<GroupMember> members = groupMemberService.findByGroupId(dto.getGroupId(), 0L);
@@ -221,6 +239,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         }).toList();
     }
 
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public void removeGroupMembers(GroupMemberRemoveDTO dto) {
         Long userId = UserContext.getUserId();
@@ -245,6 +264,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         log.info("踢出群聊，群聊id:{},群聊名称:{},用户id:{}", group.getId(), group.getName(), dto.getUserIds());
     }
 
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public void quitGroup(Long groupId) {
         Long userId = UserContext.getUserId();
@@ -254,7 +274,8 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         }
         groupMemberService.removeByGroupAndUserId(groupId);
         String key = StrUtil.join(":", RedisKey.IM_GROUP_READED_POSITION, groupId);
-        redisTemplate.opsForHash().delete(key, groupId.toString());
+        // 已读位置是 hash,field 是成员userId(不是群id)
+        redisTemplate.opsForHash().delete(key, userId.toString());
         // TODO 推送信息群聊提示、同步消息
         log.info("退出群聊，群聊id:{},群聊名称:{},用户id:{}", group.getId(), group.getName(), userId);
     }

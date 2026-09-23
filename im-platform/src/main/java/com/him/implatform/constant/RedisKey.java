@@ -129,5 +129,20 @@ public final class RedisKey {
      */
     public static final String IM_FRIEND_MAX_VERSION = "im:friend:max_version";
 
+    /**
+     * 分布式锁-群成员最大版本号(初始化计数器时使用)
+     */
+    public static final String IM_LOCK_GROUP_MEMBER_MAX_VERSION = "im:lock:group:member:max_version";
+
+    /**
+     * 分布式锁-好友信息最大版本号(初始化计数器时使用)
+     */
+    public static final String IM_LOCK_FRIEND_MAX_VERSION = "im:lock:friend:max_version";
+
+    /**
+     * 用户token版本号:自增即可让该用户已签发的所有token失效(登出/封禁)
+     */
+    public static final String IM_USER_TOKEN_VERSION = "im:user:token:version";
+
 }
 

@@ -70,4 +70,18 @@ public interface FriendService extends IService<Friend> {
      * @return 朋友
      */
     List<Friend> findByFriendIds(@Size(max = 50, message = "一次最多只能邀请50位用户") @NotEmpty(message = "群id不可为空") List<Long> friendIds);
+
+    /**
+     * 判断是否都是本人好友
+     * @param userId 本人id
+     * @param recvId 好友id
+     * @return 正确与否
+     */
+    Boolean isFriend(Long userId, @NotNull(message = "接收用户id不可为空") Long recvId);
+
+    /**
+     * 返回本用户所有好友id
+     * @return ids
+     */
+    List<Long> findFriendIds();
 }

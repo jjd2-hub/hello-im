@@ -1,6 +1,5 @@
 package com.him.implatform.service.impl;
 
-import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -19,8 +18,8 @@ import com.him.implatform.vo.FriendVO;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.CacheEvict;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -28,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -40,6 +40,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
 
     private final RedisTemplate<String,Object> redisTemplate;
     private final UserMapper userMapper;
+    private final RedissonClient redissonClient;
 
     @Override
     public List<FriendVO> findFriends(Long version) {
@@ -66,36 +67,62 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void bindFriend(Long userId, Long friendId) {
-        LambdaQueryWrapper<Friend> wrapper= Wrappers.lambdaQuery();
-        wrapper.eq(Friend::getUserId,userId).eq(Friend::getFriendId,friendId);
-        Friend friend=this.getOne(wrapper);
-        if(Objects.isNull(friend)){
-            friend=new Friend();
+        User user = userMapper.selectById(userId);
+        User friendInfo = userMapper.selectById(friendId);
+        if (Objects.isNull(user) || Objects.isNull(friendInfo)) {
+            throw new GlobalException(ResultCode.USER_NOT_EXISTS);
         }
-        friend.setVersion(this.getNextVersion());
-        friend.setUserId(userId);
-        friend.setFriendId(friendId);
-        User friendInfo=userMapper.selectById(friendId);
-        friend.setFriendNickname(friendInfo.getNickname());
-        friend.setFriendHeadImage(friendInfo.getHeadImageThumb());
-        friend.setDeleted(false);
-        this.saveOrUpdate(friend);
+        // 好友关系必须双向写入:只写单向会导致对方看不到我,也无法回复消息
+        Long version = this.getNextVersion();
+        saveOrUpdateOneWay(userId, friendId, friendInfo, version);
+        saveOrUpdateOneWay(friendId, userId, user, version);
         // TODO 推送好友消息
         // sendAddFriendMessage(userId,friendId,friend);
     }
 
+    /**
+     * 幂等写入一条单向好友记录(不存在则新增,存在则复活并刷新昵称头像)
+     *
+     * @param userId     记录归属人
+     * @param friendId   对方用户id
+     * @param friendInfo 对方用户信息
+     * @param version    本次变更版本号,双向记录共用同一个版本
+     */
+    private void saveOrUpdateOneWay(Long userId, Long friendId, User friendInfo, Long version) {
+        LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(Friend::getUserId, userId).eq(Friend::getFriendId, friendId);
+        Friend friend = this.getOne(wrapper);
+        if (Objects.isNull(friend)) {
+            friend = new Friend();
+        }
+        friend.setVersion(version);
+        friend.setUserId(userId);
+        friend.setFriendId(friendId);
+        friend.setFriendNickname(friendInfo.getNickname());
+        friend.setFriendHeadImage(friendInfo.getHeadImageThumb());
+        friend.setDeleted(false);
+        this.saveOrUpdate(friend);
+    }
+
     @Override
     public Long getNextVersion() {
-        String key= StrUtil.join(":", RedisKey.IM_FRIEND_MAX_VERSION);
-        if(redisTemplate.hasKey(key)){
+        String key = RedisKey.IM_FRIEND_MAX_VERSION;
+        // 计数器缺失时需要回填DB最大值,回填与自增必须在同一把锁内,否则并发下会分配出重复版本号,
+        // 而客户端按 version 增量同步时,重复版本号会导致其中一次变更永久丢失
+        RLock lock = redissonClient.getLock(RedisKey.IM_LOCK_FRIEND_MAX_VERSION);
+        lock.lock();
+        try {
+            if (!redisTemplate.hasKey(key)) {
+                LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
+                wrapper.orderByDesc(Friend::getVersion).last("limit 1");
+                Friend friend = this.getOne(wrapper);
+                long init = (Objects.isNull(friend) || Objects.isNull(friend.getVersion()))
+                        ? 0L : friend.getVersion();
+                redisTemplate.opsForValue().setIfAbsent(key, init);
+            }
             return redisTemplate.opsForValue().increment(key);
-        }else{
-            LambdaQueryWrapper<Friend> wrapper= Wrappers.lambdaQuery();
-            wrapper.orderByDesc(Friend::getVersion).last("limit 1");
-            Friend friend=this.getOne(wrapper);
-            Long version=Objects.isNull(friend)?1:friend.getVersion()+1;
-            redisTemplate.opsForValue().set(key,version);
-            return version;
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -121,12 +148,22 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void unbindFriend(Long userId, Long friendId) {
-        LambdaUpdateWrapper<Friend> wrapper= Wrappers.lambdaUpdate();
-        wrapper.eq(Friend::getUserId,userId).eq(Friend::getFriendId,friendId);
-        wrapper.set(Friend::getDeleted,true).set(Friend::getVersion,getNextVersion());
-        this.update(wrapper);
+        // 与绑定对称:双向都要标记删除,否则对方列表里仍留着我
+        Long version = getNextVersion();
+        markDeleted(userId, friendId, version);
+        markDeleted(friendId, userId, version);
         // TODO
         // sendDelFriendMessage(userId,friendId);
+    }
+
+    /**
+     * 软删除一条单向好友记录
+     */
+    private void markDeleted(Long userId, Long friendId, Long version) {
+        LambdaUpdateWrapper<Friend> wrapper = Wrappers.lambdaUpdate();
+        wrapper.eq(Friend::getUserId, userId).eq(Friend::getFriendId, friendId);
+        wrapper.set(Friend::getDeleted, true).set(Friend::getVersion, version);
+        this.update(wrapper);
     }
 
     @Override
@@ -149,10 +186,29 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         return this.list(wrapper);
     }
 
+    @Override
+    public Boolean isFriend(Long userId, Long recvId) {
+        LambdaQueryWrapper<Friend> wrapper= Wrappers.lambdaQuery();
+        wrapper.eq(Friend::getUserId,userId).eq(Friend::getFriendId,recvId);
+        wrapper.eq(Friend::getDeleted,false);
+        return this.exists(wrapper);
+    }
+
+    @Override
+    public List<Long> findFriendIds() {
+        Long userId = UserContext.getUserId();
+        LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(Friend::getUserId, userId);
+        wrapper.eq(Friend::getDeleted, false);
+        wrapper.select(Friend::getFriendId);
+        List<Friend> friends = this.list(wrapper);
+        return friends.stream().map(Friend::getFriendId).collect(Collectors.toList());
+    }
+
 
     private FriendVO convert(Friend f) {
         FriendVO vo=new FriendVO();
-        vo.setId(f.getId());
+        vo.setId(f.getFriendId());
         vo.setHeadImage(f.getFriendHeadImage());
         vo.setNickname(f.getFriendNickname());
         vo.setDeleted(f.getDeleted());

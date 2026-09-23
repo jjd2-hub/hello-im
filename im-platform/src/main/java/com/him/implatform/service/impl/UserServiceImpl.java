@@ -17,6 +17,7 @@ import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.UserMapper;
 import com.him.implatform.service.FriendService;
+import com.him.implatform.service.TokenVersionService;
 import com.him.implatform.service.UserService;
 import com.him.implatform.session.UserSession;
 import com.him.implatform.vo.LoginVO;
@@ -37,11 +38,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private final PasswordEncoder passwordEncoder;
     private final JwtProperties jwtProperties;
+    private final TokenVersionService tokenVersionService;
 
 
     @Override
     public void register(RegisterDTO dto) {
-        // 昵称默认用户名
+        // 昵称默认用户名，TODO：疑似多余
         if (StrUtil.isEmpty(dto.getNickname())) {
             dto.setNickname(dto.getUsername());
         }
@@ -87,27 +89,36 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             String tip=String.format("你的账号因为%s已被封禁，请联系客服。",user.getReason());
             throw new GlobalException(ResultCode.USER_BANNED.getCode(),tip);
         }
-        // 生成token
+        // 生成token,token内带上当前版本号,后续登出/封禁只需自增版本号即可让其立即失效
+        int tokenVersion = tokenVersionService.getVersion(user.getId());
         UserSession session= BeanUtil.copyProperties(user,UserSession.class);
         session.setUserId(user.getId());
         String strJson = JSON.toJSONString(session);
         String accessToken= JwtUtil.sign(user.getId(),strJson,
-                jwtProperties.getAccessTokenExpireIn(),jwtProperties.getAccessTokenSecret());
+                jwtProperties.getAccessTokenExpireIn(),jwtProperties.getAccessTokenSecret(),tokenVersion);
         String refreshToken=JwtUtil.sign(user.getId(),strJson,
-                jwtProperties.getRefreshTokenExpireIn(),jwtProperties.getRefreshTokenSecret());
+                jwtProperties.getRefreshTokenExpireIn(),jwtProperties.getRefreshTokenSecret(),tokenVersion);
         return new LoginVO(accessToken,jwtProperties.getAccessTokenExpireIn(),
                 refreshToken,jwtProperties.getRefreshTokenExpireIn());
     }
 
     @Override
     public LoginVO refreshToken(String token) {
-        // TODO 要么为refreshToken维护一个redis黑名单，要么使用版本号方案
         // 验证refreshToken
         if(!JwtUtil.checkToken(token,jwtProperties.getRefreshTokenSecret())){
             throw new GlobalException(ResultCode.LOGIN_EXPIRED);
         }
-        String strJson=JwtUtil.getInfoByToken(token);
-        Long userId=JwtUtil.getUserIdByToken(strJson);
+        // 必须用token本身解析userId:旧实现把info字段的json又传了进去,导致永远拿不到userId
+        Long userId=JwtUtil.getUserIdByToken(token);
+        if(Objects.isNull(userId)){
+            throw new GlobalException(ResultCode.LOGIN_EXPIRED);
+        }
+        // refreshToken同样受版本号约束,已登出/被封禁的token不能换新的accessToken
+        Integer tokenVersion=JwtUtil.getTokenVersion(token);
+        int currentVersion=tokenVersionService.getVersion(userId);
+        if(tokenVersion==null||tokenVersion!=currentVersion){
+            throw new GlobalException(ResultCode.LOGIN_EXPIRED);
+        }
         User user=this.getById(userId);
         if(Objects.isNull(user)){
             throw new GlobalException(ResultCode.USER_NOT_EXISTS);
@@ -116,12 +127,24 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             String tip=String.format("你的账号因为%s已被封禁，请联系客服。",user.getReason());
             throw new GlobalException(ResultCode.USER_BANNED.getCode(),tip);
         }
+        // 用DB中的最新资料重建session,避免token一直携带旧昵称/头像
+        UserSession session= BeanUtil.copyProperties(user,UserSession.class);
+        session.setUserId(user.getId());
+        String strJson = JSON.toJSONString(session);
         String accessToken=JwtUtil.sign(userId,strJson,
-                jwtProperties.getAccessTokenExpireIn(),jwtProperties.getAccessTokenSecret());
+                jwtProperties.getAccessTokenExpireIn(),jwtProperties.getAccessTokenSecret(),currentVersion);
         String refreshToken=JwtUtil.sign(userId,strJson,
-                jwtProperties.getRefreshTokenExpireIn(),jwtProperties.getRefreshTokenSecret());
+                jwtProperties.getRefreshTokenExpireIn(),jwtProperties.getRefreshTokenSecret(),currentVersion);
         return new LoginVO(accessToken,jwtProperties.getAccessTokenExpireIn(),
                 refreshToken,jwtProperties.getRefreshTokenExpireIn());
+    }
+
+    @Override
+    public void logout() {
+        Long userId = UserContext.getUserId();
+        // 自增版本号,该用户已签发的accessToken与refreshToken立即全部失效
+        tokenVersionService.invalidate(userId);
+        log.info("用户退出登录,用户id:{}", userId);
     }
 
     @Override
@@ -151,10 +174,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public void update(UserVO vo) {
         Long userId = UserContext.getUserId();
         // TODO 用户昵称敏感字符检查
-        if (userId != null && userId.equals(vo.getId())) {
+        // 只允许修改自己的资料
+        if (!userId.equals(vo.getId())) {
             throw new GlobalException(ResultCode.CAN_OPERATE_OTHER_USER);
         }
-        User user=this.getById(vo.getId());
+        // 目标用户必定是自己,无需再按id查询他人
+        User user=this.getById(userId);
         if(Objects.isNull(user)){
             throw new GlobalException(ResultCode.USER_NOT_EXISTS);
         }

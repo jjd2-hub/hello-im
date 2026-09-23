@@ -77,7 +77,15 @@ public enum ResultCode {
     /**
      * 超越了规定
      */
-    FILL_MAX_ALLOW(10015,"数量或权限超过规定");
+    FILL_MAX_ALLOW(10015,"数量或权限超过规定"),
+    /**
+     * 格式异常
+     */
+    FORMAT_FAILED(10016,"格式异常"),
+    /**
+     * 因超时而不能操作
+     */
+    TIME_OUT(10017,"超时不能操作");
 
     private final int code;
     private final String msg;

@@ -39,4 +39,9 @@ public final class Constant {
      * 离线消息最大拉取数量
      */
     public static final Long MAX_OFFLINE_MESSAGE_SIZE = 10L;
+
+    /**
+     * 历史消息单次最大拉取数量
+     */
+    public static final Integer MAX_HISTORY_MESSAGE_SIZE = 100;
 }

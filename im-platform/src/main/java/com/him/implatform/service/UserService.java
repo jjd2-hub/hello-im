@@ -44,6 +44,11 @@ public interface UserService extends IService<User> {
     LoginVO refreshToken(String token);
 
     /**
+     * 退出登录:使该用户已签发的所有token立即失效
+     */
+    void logout();
+
+    /**
      * 修改密码
      * @param dto 新旧密码
      */

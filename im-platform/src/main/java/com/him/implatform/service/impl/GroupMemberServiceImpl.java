@@ -10,6 +10,8 @@ import com.him.implatform.entity.GroupMember;
 import com.him.implatform.mapper.GroupMemberMapper;
 import com.him.implatform.service.GroupMemberService;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +24,7 @@ import java.util.Objects;
 public class GroupMemberServiceImpl extends ServiceImpl<GroupMemberMapper, GroupMember> implements GroupMemberService {
 
     private final RedisTemplate<String, Object> redisTemplate;
+    private final RedissonClient redissonClient;
 
     @Override
     public GroupMember findByGroupAndUserId(Long groupId, Long userId) {
@@ -33,15 +36,22 @@ public class GroupMemberServiceImpl extends ServiceImpl<GroupMemberMapper, Group
     @Override
     public Long getNextVersion() {
         String key = RedisKey.IM_GROUP_MEMBER_MAX_VERSION;
-        if (redisTemplate.hasKey(key)) {
-            return (Long) redisTemplate.opsForValue().increment(key);
-        } else {
-            LambdaQueryWrapper<GroupMember> wrapper = Wrappers.lambdaQuery();
-            wrapper.orderByDesc(GroupMember::getVersion).last("limit 1");
-            GroupMember groupMember = this.getOne(wrapper);
-            Long version = Objects.isNull(groupMember) ? 1L : groupMember.getVersion() + 1;
-            redisTemplate.opsForValue().set(key, version);
-            return version;
+        // 计数器缺失时需要回填DB最大值,回填与自增必须在同一把锁内,否则并发下会分配出重复版本号,
+        // 而客户端按 version 增量同步时,重复版本号会导致其中一次变更永久丢失
+        RLock lock = redissonClient.getLock(RedisKey.IM_LOCK_GROUP_MEMBER_MAX_VERSION);
+        lock.lock();
+        try {
+            if (!redisTemplate.hasKey(key)) {
+                LambdaQueryWrapper<GroupMember> wrapper = Wrappers.lambdaQuery();
+                wrapper.orderByDesc(GroupMember::getVersion).last("limit 1");
+                GroupMember groupMember = this.getOne(wrapper);
+                long init = (Objects.isNull(groupMember) || Objects.isNull(groupMember.getVersion()))
+                        ? 0L : groupMember.getVersion();
+                redisTemplate.opsForValue().setIfAbsent(key, init);
+            }
+            return redisTemplate.opsForValue().increment(key);
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -96,11 +106,17 @@ public class GroupMemberServiceImpl extends ServiceImpl<GroupMemberMapper, Group
 
     @Override
     public boolean removeByGroupAndUserIds(Long groupId, List<Long> userIds) {
-        LambdaQueryWrapper<GroupMember> wrapper = Wrappers.lambdaQuery();
-        wrapper.eq(GroupMember::getGroupId, groupId).eq(GroupMember::getQuit, false);
-        wrapper.select(GroupMember::getUserId);
-        List<GroupMember> members = this.list(wrapper);
-        return members.stream().map(GroupMember::getUserId).toList();
+        if (userIds == null || userIds.isEmpty()) {
+            return true;
+        }
+        Long version = getNextVersion();
+        LambdaUpdateWrapper<GroupMember> wrapper = Wrappers.lambdaUpdate();
+        wrapper.eq(GroupMember::getGroupId, groupId)
+                .eq(GroupMember::getQuit, false)
+                .in(GroupMember::getUserId, userIds);
+        wrapper.set(GroupMember::getQuit, true).set(GroupMember::getQuitTime, new Date());
+        wrapper.set(GroupMember::getVersion, version);
+        return this.update(wrapper);
     }
 
     @Override

@@ -7,6 +7,7 @@ import com.him.implatform.config.props.JwtProperties;
 import com.him.implatform.context.UserContext;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
+import com.him.implatform.service.TokenVersionService;
 import com.him.implatform.session.UserSession;
 import io.micrometer.common.lang.Nullable;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,6 +25,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class AuthInterceptor implements HandlerInterceptor {
 
     private final JwtProperties jwtProperties;
+    private final TokenVersionService tokenVersionService;
 
     @Override
     public boolean preHandle(@NotNull HttpServletRequest request, @NotNull HttpServletResponse response, @NotNull Object handler) throws Exception {
@@ -47,6 +49,14 @@ public class AuthInterceptor implements HandlerInterceptor {
         if(userSession==null){
             log.error("反序列化失败:{}",strJson);
             return false;
+        }
+        // 比对token版本号:封禁/退出登录后版本号已自增,旧token立即失效
+        Integer tokenVersion= JwtUtil.getTokenVersion(token);
+        int currentVersion= tokenVersionService.getVersion(userSession.getUserId());
+        if(tokenVersion==null||tokenVersion!=currentVersion){
+            log.error("token已失效,userId:{},token版本:{},当前版本:{}",
+                    userSession.getUserId(),tokenVersion,currentVersion);
+            throw new GlobalException(ResultCode.INVALID_TOKEN);
         }
         UserContext.set(userSession);
         return true;
