@@ -1,8 +1,10 @@
 package com.him.implatform.controller;
 
+import com.him.implatform.dto.GroupCreateDTO;
 import com.him.implatform.dto.GroupDndDTO;
 import com.him.implatform.dto.GroupInviteDTO;
 import com.him.implatform.dto.GroupMemberRemoveDTO;
+import com.him.implatform.dto.GroupModifyDTO;
 import com.him.implatform.result.Result;
 import com.him.implatform.service.GroupService;
 import com.him.implatform.vo.GroupMemberVO;
@@ -24,17 +26,16 @@ public class GroupController {
 
     private final GroupService groupService;
 
-    // TODO
     @Operation(summary = "创建群聊", description = "创建群聊")
     @PostMapping("/create")
-    public Result<GroupVO> createGroup(@Valid @RequestBody GroupVO vo) {
-        return Result.success(groupService.createGroup(vo));
+    public Result<GroupVO> createGroup(@Valid @RequestBody GroupCreateDTO dto) {
+        return Result.success(groupService.createGroup(dto));
     }
 
-    @Operation(summary = "修改群聊信息", description = "修改群聊信息")
+    @Operation(summary = "修改群聊信息", description = "任何成员可改自己的群内备注,只有群主能改群资料")
     @PutMapping("/modify")
-    public Result<GroupVO> modifyGroup(@Valid @RequestBody GroupVO vo) {
-        return Result.success(groupService.modifyGroup(vo));
+    public Result<GroupVO> modifyGroup(@Valid @RequestBody GroupModifyDTO dto) {
+        return Result.success(groupService.modifyGroup(dto));
     }
 
     @Operation(summary = "解散群聊", description = "解散群聊")

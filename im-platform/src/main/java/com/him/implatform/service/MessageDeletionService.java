@@ -1,6 +1,5 @@
 package com.him.implatform.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
 import com.him.implatform.entity.MessageDeletion;
 import com.him.imcommon.enums.ChatType;
 
@@ -12,7 +11,7 @@ import java.util.Set;
  * 消息删除记录。删除是"仅对自己生效"的,所以不物理删除消息,而是记录谁删了哪些消息,
  * 查询历史/离线消息时再把这些消息标记为 deleted 返回,其它端据此同步删除。
  */
-public interface MessageDeletionService extends IService<MessageDeletion> {
+public interface MessageDeletionService {
 
     /**
      * 按消息删除:记录用户删掉了会话中的哪几条消息

@@ -9,14 +9,15 @@ import com.him.imcommon.util.BeanUtil;
 import com.him.imcommon.util.JwtUtil;
 import com.him.implatform.config.props.JwtProperties;
 import com.him.implatform.context.UserContext;
+import com.him.implatform.converter.UserConverter;
 import com.him.implatform.dto.LoginDTO;
 import com.him.implatform.dto.ModifyPwdDTO;
 import com.him.implatform.dto.RegisterDTO;
+import com.him.implatform.dto.UserUpdateDTO;
 import com.him.implatform.entity.User;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.UserMapper;
-import com.him.implatform.service.FriendService;
 import com.him.implatform.service.TokenVersionService;
 import com.him.implatform.service.UserService;
 import com.him.implatform.session.UserSession;
@@ -70,10 +71,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         LambdaQueryWrapper<User> queryWrapper = Wrappers.lambdaQuery();
         queryWrapper.like(User::getUsername, name).or().like(User::getNickname, name);
         List<User> users = this.list(queryWrapper);
-        List<Long> userIds = users.stream().map(User::getId).toList();
         // TODO 此处用户在线状态需im-client，暂时不设置
-        return users.stream().map(user ->
-                BeanUtil.copyProperties(user, UserVO.class)).toList();
+        return UserConverter.toVoList(users);
     }
 
     @Override
@@ -166,16 +165,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new GlobalException(ResultCode.USER_NOT_EXISTS);
         }
         // TODO 此处用户在线状态未知，需im-client
-        return BeanUtil.copyProperties(user,UserVO.class);
+        return UserConverter.toVo(user);
+    }
+
+    @Override
+    public User getUserById(Long id) {
+        return this.getById(id);
     }
 
     @Transactional(rollbackFor = Exception.class)
     @Override
-    public void update(UserVO vo) {
+    public void update(UserUpdateDTO dto) {
         Long userId = UserContext.getUserId();
         // TODO 用户昵称敏感字符检查
         // 只允许修改自己的资料
-        if (!userId.equals(vo.getId())) {
+        if (!userId.equals(dto.getId())) {
             throw new GlobalException(ResultCode.CAN_OPERATE_OTHER_USER);
         }
         // 目标用户必定是自己,无需再按id查询他人
@@ -184,11 +188,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new GlobalException(ResultCode.USER_NOT_EXISTS);
         }
         // TODO 更新好友或者群聊中的昵称和头像
-        user.setNickname(vo.getNickname());
-        user.setSex(vo.getSex());
-        user.setSignature(vo.getSignature());
-        user.setHeadImage(vo.getHeadImage());
-        user.setHeadImageThumb(vo.getHeadImageThumb());
+        user.setNickname(dto.getNickname());
+        user.setSex(dto.getSex());
+        user.setSignature(dto.getSignature());
+        user.setHeadImage(dto.getHeadImage());
+        user.setHeadImageThumb(dto.getHeadImageThumb());
         this.updateById(user);
         log.info("用户信息更新,用户:{}",user);
     }

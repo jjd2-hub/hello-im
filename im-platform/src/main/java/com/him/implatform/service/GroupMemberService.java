@@ -1,6 +1,5 @@
 package com.him.implatform.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
 import com.him.implatform.entity.GroupMember;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -10,7 +9,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 
-public interface GroupMemberService extends IService<GroupMember> {
+public interface GroupMemberService {
     /**
      * 根据群聊id和用户id查询群聊成员
      *
@@ -98,4 +97,29 @@ public interface GroupMemberService extends IService<GroupMember> {
      * @param userId  用户id
      */
     void setDnd(@NotNull(message = "群id不可为空") Long groupId, Long userId, boolean isDnd);
+
+    /**
+     * 新增群成员
+     *
+     * @param member 成员记录
+     */
+    void addMember(GroupMember member);
+
+    /**
+     * 更新群成员(昵称备注、头像快照等)
+     *
+     * @param member 成员记录,必须有id
+     */
+    void updateMember(GroupMember member);
+
+    /**
+     * 按用户id + 版本号增量查询群成员记录。
+     * 原来这个查询由 GroupService 自己拼 wrapper 调通用 list 实现,
+     * 导致"有效成员"的过滤语义泄漏到了别的服务里,所以收回来
+     *
+     * @param userId  用户id
+     * @param version 客户端已有的版本号,只返回比它大的
+     * @return 成员记录
+     */
+    List<GroupMember> findByUserIdAndVersion(Long userId, Long version);
 }

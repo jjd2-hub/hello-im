@@ -1,9 +1,9 @@
 package com.him.implatform.controller;
 
-import com.him.imcommon.util.BeanUtil;
 import com.him.implatform.context.UserContext;
+import com.him.implatform.converter.UserConverter;
 import com.him.implatform.dto.ModifyPwdDTO;
-import com.him.implatform.entity.User;
+import com.him.implatform.dto.UserUpdateDTO;
 import com.him.implatform.result.Result;
 import com.him.implatform.service.UserService;
 import com.him.implatform.vo.UserVO;
@@ -27,9 +27,7 @@ public class UserController {
     @Operation(summary = "获取用户信息")
     @GetMapping("/self")
     public Result<UserVO> findSelfInfo(){
-        User user=userService.getById(UserContext.getUserId());
-        UserVO userVO= BeanUtil.copyProperties(user,UserVO.class);
-        return Result.success(userVO);
+        return Result.success(UserConverter.toVo(userService.getUserById(UserContext.getUserId())));
     }
 
     @Operation(summary = "查找用户",description = "根据id查找")
@@ -40,8 +38,8 @@ public class UserController {
 
     @Operation(summary = "修改用户信息",description = "仅允许修改登录用户信息")
     @PutMapping("/update")
-    public Result<?> update(@Valid @RequestBody UserVO vo){
-        userService.update(vo);
+    public Result<?> update(@Valid @RequestBody UserUpdateDTO dto){
+        userService.update(dto);
         return Result.success();
     }
 

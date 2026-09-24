@@ -1,11 +1,10 @@
 package com.him.implatform.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
 import com.him.implatform.entity.FileInfo;
 import com.him.implatform.vo.UploadImageVO;
 import org.springframework.web.multipart.MultipartFile;
 
-public interface FileService extends IService<FileInfo> {
+public interface FileService {
     /**
      * 上传图片
      * @param file 图片文件

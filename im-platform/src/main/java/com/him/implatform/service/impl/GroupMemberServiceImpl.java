@@ -8,11 +8,9 @@ import com.him.imcommon.constant.RedisKey;
 import com.him.implatform.context.UserContext;
 import com.him.implatform.entity.GroupMember;
 import com.him.implatform.mapper.GroupMemberMapper;
+import com.him.implatform.redis.DistributedCounter;
 import com.him.implatform.service.GroupMemberService;
 import lombok.RequiredArgsConstructor;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
@@ -23,8 +21,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class GroupMemberServiceImpl extends ServiceImpl<GroupMemberMapper, GroupMember> implements GroupMemberService {
 
-    private final RedisTemplate<String, Object> redisTemplate;
-    private final RedissonClient redissonClient;
+    private final DistributedCounter counter;
 
     @Override
     public GroupMember findByGroupAndUserId(Long groupId, Long userId) {
@@ -35,24 +32,16 @@ public class GroupMemberServiceImpl extends ServiceImpl<GroupMemberMapper, Group
 
     @Override
     public Long getNextVersion() {
-        String key = RedisKey.IM_GROUP_MEMBER_MAX_VERSION;
-        // 计数器缺失时需要回填DB最大值,回填与自增必须在同一把锁内,否则并发下会分配出重复版本号,
-        // 而客户端按 version 增量同步时,重复版本号会导致其中一次变更永久丢失
-        RLock lock = redissonClient.getLock(RedisKey.IM_LOCK_GROUP_MEMBER_MAX_VERSION);
-        lock.lock();
-        try {
-            if (!redisTemplate.hasKey(key)) {
-                LambdaQueryWrapper<GroupMember> wrapper = Wrappers.lambdaQuery();
-                wrapper.orderByDesc(GroupMember::getVersion).last("limit 1");
-                GroupMember groupMember = this.getOne(wrapper);
-                long init = (Objects.isNull(groupMember) || Objects.isNull(groupMember.getVersion()))
-                        ? 0L : groupMember.getVersion();
-                redisTemplate.opsForValue().setIfAbsent(key, init);
-            }
-            return redisTemplate.opsForValue().increment(key);
-        } finally {
-            lock.unlock();
-        }
+        // 计数器缺失时用DB最大值回填;回填与自增必须在同一把锁内完成(实现见 DistributedCounter)
+        return counter.next(
+                RedisKey.IM_GROUP_MEMBER_MAX_VERSION,
+                RedisKey.IM_LOCK_GROUP_MEMBER_MAX_VERSION,
+                () -> {
+                    LambdaQueryWrapper<GroupMember> wrapper = Wrappers.lambdaQuery();
+                    wrapper.orderByDesc(GroupMember::getVersion).last("limit 1");
+                    GroupMember last = this.getOne(wrapper);
+                    return Objects.isNull(last) || Objects.isNull(last.getVersion()) ? 0L : last.getVersion();
+                });
     }
 
     @Override
@@ -140,5 +129,25 @@ public class GroupMemberServiceImpl extends ServiceImpl<GroupMemberMapper, Group
         wrapper.set(GroupMember::getIsDnd, isDnd);
         wrapper.set(GroupMember::getVersion, version);
         this.update(wrapper);
+    }
+
+    @Override
+    public void addMember(GroupMember member) {
+        // 走显式业务方法而不是把通用 save 暴露给调用方,
+        // 这样"新增成员要带什么"这件事只在这里定义
+        this.save(member);
+    }
+
+    @Override
+    public void updateMember(GroupMember member) {
+        this.updateById(member);
+    }
+
+    @Override
+    public List<GroupMember> findByUserIdAndVersion(Long userId, Long version) {
+        LambdaQueryWrapper<GroupMember> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(GroupMember::getUserId, userId)
+                .gt(Objects.nonNull(version) && version > 0, GroupMember::getVersion, version);
+        return this.list(wrapper);
     }
 }

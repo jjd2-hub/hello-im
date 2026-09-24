@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.him.imcommon.constant.RedisKey;
 import com.him.implatform.context.UserContext;
+import com.him.implatform.converter.FriendConverter;
 import com.him.implatform.dto.FriendDndDTO;
 import com.him.implatform.entity.Friend;
 import com.him.implatform.entity.User;
@@ -13,15 +14,13 @@ import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.FriendMapper;
 import com.him.implatform.mapper.UserMapper;
+import com.him.implatform.redis.DistributedCounter;
 import com.him.implatform.service.FriendService;
 import com.him.implatform.vo.FriendVO;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,9 +37,8 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
     @Lazy
     private FriendService selfService;
 
-    private final RedisTemplate<String,Object> redisTemplate;
     private final UserMapper userMapper;
-    private final RedissonClient redissonClient;
+    private final DistributedCounter counter;
 
     @Override
     public List<FriendVO> findFriends(Long version) {
@@ -50,7 +48,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         // 增量同步处理方式：版本号
         wrapper.gt(version>0,Friend::getVersion,version);
         List<Friend> friends=this.list(wrapper);
-        return friends.stream().map(this::convert).toList();
+        return FriendConverter.toVoList(friends);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -106,24 +104,16 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
 
     @Override
     public Long getNextVersion() {
-        String key = RedisKey.IM_FRIEND_MAX_VERSION;
-        // 计数器缺失时需要回填DB最大值,回填与自增必须在同一把锁内,否则并发下会分配出重复版本号,
-        // 而客户端按 version 增量同步时,重复版本号会导致其中一次变更永久丢失
-        RLock lock = redissonClient.getLock(RedisKey.IM_LOCK_FRIEND_MAX_VERSION);
-        lock.lock();
-        try {
-            if (!redisTemplate.hasKey(key)) {
-                LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
-                wrapper.orderByDesc(Friend::getVersion).last("limit 1");
-                Friend friend = this.getOne(wrapper);
-                long init = (Objects.isNull(friend) || Objects.isNull(friend.getVersion()))
-                        ? 0L : friend.getVersion();
-                redisTemplate.opsForValue().setIfAbsent(key, init);
-            }
-            return redisTemplate.opsForValue().increment(key);
-        } finally {
-            lock.unlock();
-        }
+        // 计数器缺失时用DB最大值回填;回填与自增必须在同一把锁内完成(实现见 DistributedCounter)
+        return counter.next(
+                RedisKey.IM_FRIEND_MAX_VERSION,
+                RedisKey.IM_LOCK_FRIEND_MAX_VERSION,
+                () -> {
+                    LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
+                    wrapper.orderByDesc(Friend::getVersion).last("limit 1");
+                    Friend last = this.getOne(wrapper);
+                    return Objects.isNull(last) || Objects.isNull(last.getVersion()) ? 0L : last.getVersion();
+                });
     }
 
     @Override
@@ -135,7 +125,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         if(Objects.isNull(friend)){
             throw new GlobalException(ResultCode.HAS_NO_RELATION_WITH_TARGET.getCode(),"对方不是您好友");
         }
-        return convert(friend);
+        return FriendConverter.toVo(friend);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -205,15 +195,4 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         return friends.stream().map(Friend::getFriendId).collect(Collectors.toList());
     }
 
-
-    private FriendVO convert(Friend f) {
-        FriendVO vo=new FriendVO();
-        vo.setId(f.getFriendId());
-        vo.setHeadImage(f.getFriendHeadImage());
-        vo.setNickname(f.getFriendNickname());
-        vo.setDeleted(f.getDeleted());
-        vo.setIsDnd(f.getIsDnd());
-        vo.setVersion(f.getVersion());
-        return vo;
-    }
 }

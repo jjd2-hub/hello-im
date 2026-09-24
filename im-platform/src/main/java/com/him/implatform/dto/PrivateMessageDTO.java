@@ -8,7 +8,7 @@ import org.hibernate.validator.constraints.Length;
 
 @Data
 @Schema(description = "私聊消息DTO")
-public class PrivateMessageDTO {
+public class PrivateMessageDTO implements MessageContent {
 
     @NotEmpty(message = "本地消息id不可为空")
     @Schema(description = "本地消息id,前端通过雪花算法生成")

@@ -6,6 +6,7 @@ import com.him.implatform.context.UserContext;
 import com.him.implatform.dto.LoginDTO;
 import com.him.implatform.dto.ModifyPwdDTO;
 import com.him.implatform.dto.RegisterDTO;
+import com.him.implatform.dto.UserUpdateDTO;
 import com.him.implatform.entity.User;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
@@ -334,11 +335,11 @@ class UserServiceImplTest {
         session.setUserId(1L); // 当前登录用户是1
         UserContext.set(session);
 
-        UserVO vo = new UserVO();
-        vo.setId(1L); // 只能修改自己
-        vo.setNickname("新昵称");
-        vo.setSex(1);
-        vo.setSignature("新签名");
+        UserUpdateDTO dto = new UserUpdateDTO();
+        dto.setId(1L); // 只能修改自己
+        dto.setNickname("新昵称");
+        dto.setSex(1);
+        dto.setSignature("新签名");
 
         User user = new User();
         user.setId(1L);
@@ -347,7 +348,7 @@ class UserServiceImplTest {
         when(userMapper.selectById(1L)).thenReturn(user);
         when(userMapper.updateById(any(User.class))).thenReturn(1);
 
-        assertDoesNotThrow(() -> userService.update(vo));
+        assertDoesNotThrow(() -> userService.update(dto));
 
         verify(userMapper, times(1)).updateById(any(User.class));
     }
@@ -359,10 +360,10 @@ class UserServiceImplTest {
         session.setUserId(2L); // 当前登录用户是2
         UserContext.set(session);
 
-        UserVO vo = new UserVO();
-        vo.setId(1L); // 试图修改用户1(不是自己),属于越权
+        UserUpdateDTO dto = new UserUpdateDTO();
+        dto.setId(1L); // 试图修改用户1(不是自己),属于越权
 
-        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(vo));
+        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(dto));
         assertEquals(ResultCode.CAN_OPERATE_OTHER_USER.getCode(), ex.getCode());
 
         verify(userMapper, never()).updateById(any(User.class));
@@ -375,12 +376,12 @@ class UserServiceImplTest {
         session.setUserId(2L);
         UserContext.set(session);
 
-        UserVO vo = new UserVO();
-        vo.setId(2L); // 修改自己,但库里查不到该用户
+        UserUpdateDTO dto = new UserUpdateDTO();
+        dto.setId(2L); // 修改自己,但库里查不到该用户
 
         when(userMapper.selectById(2L)).thenReturn(null);
 
-        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(vo));
+        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(dto));
         assertEquals(ResultCode.USER_NOT_EXISTS.getCode(), ex.getCode());
     }
 }

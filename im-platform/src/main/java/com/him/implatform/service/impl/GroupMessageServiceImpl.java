@@ -7,35 +7,33 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.him.imcommon.constant.IMConstant;
-import com.him.imcommon.util.BeanUtil;
+import com.him.imcommon.enums.ChatType;
 import com.him.implatform.constant.Constant;
-import com.him.imcommon.constant.RedisKey;
 import com.him.implatform.context.UserContext;
+import com.him.implatform.converter.GroupMessageConverter;
 import com.him.implatform.dto.ChatDeleteDTO;
 import com.him.implatform.dto.GroupMessageDTO;
 import com.him.implatform.dto.GroupMessageHistoryDTO;
 import com.him.implatform.dto.MessageDeleteDTO;
 import com.him.implatform.entity.GroupMember;
 import com.him.implatform.entity.GroupMessage;
-import com.him.imcommon.enums.ChatType;
 import com.him.implatform.enums.MessageStatus;
 import com.him.implatform.enums.MessageType;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.GroupMessageMapper;
+import com.him.implatform.redis.DistributedCounter;
+import com.him.implatform.redis.RedisKeys;
 import com.him.implatform.service.GroupMemberService;
 import com.him.implatform.service.GroupMessageService;
 import com.him.implatform.service.GroupService;
 import com.him.implatform.service.MessageDeletionService;
-import com.him.implatform.service.SensitiveWordService;
+import com.him.implatform.validator.MessageValidator;
 import com.him.implatform.vo.GroupMessageVO;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.time.DateUtils;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -62,15 +60,13 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
     private final GroupService groupService;
     private final GroupMemberService groupMemberService;
     private final MessageDeletionService messageDeletionService;
-    private final SensitiveWordService sensitiveWordService;
+    private final MessageValidator messageValidator;
+    private final DistributedCounter counter;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     @Resource
     @Lazy
     private GroupMessageService selfService;
-    @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
-    @Autowired
-    private RedissonClient redissonClient;
 
     @Transactional(rollbackFor = Exception.class)
     @Override
@@ -80,7 +76,7 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
         groupService.getAndCheckById(dto.getGroupId());
         // 发送者必须是群成员
         GroupMember member = checkMember(dto.getGroupId(), userId);
-        validMessage(dto);
+        messageValidator.validate(dto);
         GroupMessage message = new GroupMessage();
         message.setLocalId(dto.getLocalId());
         message.setGroupId(dto.getGroupId());
@@ -92,19 +88,12 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
         message.setReceiptOk(false);
         message.setAtUserIds(GroupMessage.joinUserIds(dto.getAtUserIds()));
         message.setSendTime(new Date());
-        // 敏感词过滤只作用于文字消息:图片/文件等内容是JSON,整体替换会破坏结构
-        if (MessageType.TEXT.getCode().equals(dto.getType())) {
-            message.setContent(sensitiveWordService.filter(dto.getContent()));
-        } else {
-            message.setContent(dto.getContent());
-        }
+        // "只过滤文字消息"这个策略统一放在 MessageValidator 里,两个消息服务共用
+        message.setContent(messageValidator.filterSensitive(dto.getType(), dto.getContent()));
         selfService.saveMessage(message);
         // TODO 推送群聊消息给群内其他成员(im-client/im-server 完成后实现)
-        GroupMessageVO vo = convert(message);
-        vo.setReadedCount(0);
-        vo.setDeleted(false);
         log.info("发送群聊消息,群id:{},发送id:{},内容:{}", dto.getGroupId(), userId, dto.getContent());
-        return vo;
+        return GroupMessageConverter.toVo(message, false, 0);
     }
 
     @Override
@@ -112,11 +101,21 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
         if (StrUtil.isEmpty(message.getLocalId())) {
             message.setLocalId(IdWorker.getIdStr());
         }
-        message.setSeqNo(getNextSeqNo(message.getGroupId()));
+        Long groupId = message.getGroupId();
+        message.setSeqNo(counter.next(
+                RedisKeys.groupMessageMaxSeq(groupId),
+                RedisKeys.lockGroupMessageMaxSeq(groupId),
+                () -> {
+                    LambdaQueryWrapper<GroupMessage> wrapper = Wrappers.lambdaQuery();
+                    wrapper.eq(GroupMessage::getGroupId, groupId);
+                    wrapper.orderByDesc(GroupMessage::getSeqNo).last("limit 1");
+                    GroupMessage last = this.getOne(wrapper);
+                    return Objects.isNull(last) || Objects.isNull(last.getSeqNo()) ? 0L : last.getSeqNo();
+                }));
         save(message);
         // 缓存群内最新消息id,离线拉取时给没有消息的群补一条最新消息
-        String key = StrUtil.join(":", RedisKey.IM_GROUP_MESSAGE_MAX_ID, message.getGroupId());
-        redisTemplate.opsForValue().set(key, message.getId(), Constant.MAX_OFFLINE_MESSAGE_DAYS, TimeUnit.DAYS);
+        redisTemplate.opsForValue().set(RedisKeys.groupMessageMaxId(groupId), message.getId(),
+                Constant.MAX_OFFLINE_MESSAGE_DAYS, TimeUnit.DAYS);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -156,11 +155,8 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
         tipMessage.setContent(JSON.toJSONString(contentMap));
         selfService.saveMessage(tipMessage);
         // TODO 推送撤回消息给群成员(im-client/im-server 完成后实现)
-        GroupMessageVO vo = convert(tipMessage);
-        vo.setReadedCount(0);
-        vo.setDeleted(false);
         log.info("撤回群聊消息,群id:{},发送id:{},原消息id:{}", recallMessage.getGroupId(), userId, id);
-        return vo;
+        return GroupMessageConverter.toVo(tipMessage, false, 0);
     }
 
     @Override
@@ -289,7 +285,7 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
             return messages;
         }
         List<String> keys = missingGroupIds.stream()
-                .map(id -> StrUtil.join(":", RedisKey.IM_GROUP_MESSAGE_MAX_ID, id))
+                .map(RedisKeys::groupMessageMaxId)
                 .toList();
         List<Object> maxMessageIds = redisTemplate.opsForValue().multiGet(keys);
         if (Objects.isNull(maxMessageIds)) {
@@ -329,11 +325,8 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
             readedPositions.put(groupId, loadReadedPositions(groupId));
         });
         return messages.stream().map(m -> {
-            GroupMessageVO vo = convert(m);
-            vo.setDeleted(deletedIds.contains(m.getId()));
             Map<Long, Long> positions = readedPositions.getOrDefault(m.getGroupId(), Map.of());
-            vo.setReadedCount(countReaded(positions, m));
-            return vo;
+            return GroupMessageConverter.toVo(m, deletedIds.contains(m.getId()), countReaded(positions, m));
         }).collect(Collectors.toList());
     }
 
@@ -415,7 +408,7 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
     }
 
     private String readedKey(Long groupId) {
-        return StrUtil.join(":", RedisKey.IM_GROUP_READED_POSITION, groupId);
+        return RedisKeys.groupReadedPosition(groupId);
     }
 
     /**
@@ -451,48 +444,5 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
                 .select(GroupMessage::getId);
         GroupMessage last = this.getOne(wrapper);
         return Objects.isNull(last) || Objects.isNull(last.getId()) ? 0L : last.getId();
-    }
-
-    private Long getNextSeqNo(Long groupId) {
-        String key = StrUtil.join(":", RedisKey.IM_GROUP_MESSAGE_MAX_SEQ, groupId);
-        // 回填DB最大值与自增必须在同一把锁内,且锁按群隔离,否则并发发送会分配出重复序号
-        RLock lock = redissonClient.getLock(RedisKey.IM_LOCK_GROUP_MESSAGE_MAX_SEQ + ":" + groupId);
-        lock.lock();
-        try {
-            if (!redisTemplate.hasKey(key)) {
-                LambdaQueryWrapper<GroupMessage> wrapper = Wrappers.lambdaQuery();
-                wrapper.eq(GroupMessage::getGroupId, groupId);
-                wrapper.orderByDesc(GroupMessage::getSeqNo).last("limit 1");
-                GroupMessage lastMessage = this.getOne(wrapper);
-                long init = (Objects.isNull(lastMessage) || Objects.isNull(lastMessage.getSeqNo()))
-                        ? 0L : lastMessage.getSeqNo();
-                redisTemplate.opsForValue().setIfAbsent(key, init);
-            }
-            return redisTemplate.opsForValue().increment(key);
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    private GroupMessageVO convert(GroupMessage message) {
-        GroupMessageVO vo = BeanUtil.copyProperties(message, GroupMessageVO.class);
-        vo.setAtUserIds(GroupMessage.parseUserIds(message.getAtUserIds()));
-        return vo;
-    }
-
-    private void validMessage(GroupMessageDTO dto) {
-        // 文字消息-长度校验
-        if (MessageType.TEXT.getCode().equals(dto.getType()) && dto.getContent().length() > Constant.MAX_MESSAGE_LENGTH) {
-            throw new GlobalException(ResultCode.FILL_MAX_ALLOW.getCode(),
-                    String.format("消息长度不能大于%s个字符", Constant.MAX_MESSAGE_LENGTH));
-        }
-        try {
-            // 非文字消息-保证数据格式是json，防止前端报错
-            if (!MessageType.TEXT.getCode().equals(dto.getType())) {
-                JSON.parse(dto.getContent());
-            }
-        } catch (Exception e) {
-            throw new GlobalException(ResultCode.FORMAT_FAILED);
-        }
     }
 }

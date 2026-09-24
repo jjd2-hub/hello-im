@@ -1,9 +1,10 @@
 package com.him.implatform.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
+import com.him.implatform.dto.GroupCreateDTO;
 import com.him.implatform.dto.GroupDndDTO;
 import com.him.implatform.dto.GroupInviteDTO;
 import com.him.implatform.dto.GroupMemberRemoveDTO;
+import com.him.implatform.dto.GroupModifyDTO;
 import com.him.implatform.entity.Group;
 import com.him.implatform.vo.GroupMemberVO;
 import com.him.implatform.vo.GroupVO;
@@ -12,13 +13,13 @@ import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
 
-public interface GroupService extends IService<Group> {
+public interface GroupService {
     /**
      * 创建群聊
-     * @param vo 所需dto
-     * @return vo
+     * @param dto 群资料
+     * @return 创建后的群聊
      */
-    GroupVO createGroup(@Valid GroupVO vo);
+    GroupVO createGroup(@Valid GroupCreateDTO dto);
 
     /**
      * 查询群聊
@@ -28,11 +29,11 @@ public interface GroupService extends IService<Group> {
     GroupVO findById(Long id);
 
     /**
-     * 修改群聊
-     * @param vo 传参
-     * @return 修改后
+     * 修改群聊。任何成员可改自己的群内备注,只有群主能改群资料
+     * @param dto 待修改内容
+     * @return 修改后的群聊
      */
-    GroupVO modifyGroup(@Valid GroupVO vo);
+    GroupVO modifyGroup(@Valid GroupModifyDTO dto);
 
     /**
      * 根据id查找群聊

@@ -1,6 +1,5 @@
 package com.him.implatform.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
 import com.him.implatform.dto.FriendDndDTO;
 import com.him.implatform.entity.Friend;
 import com.him.implatform.vo.FriendVO;
@@ -11,7 +10,7 @@ import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
-public interface FriendService extends IService<Friend> {
+public interface FriendService {
     /**
      * 获取好友列表
      * @param version 版本

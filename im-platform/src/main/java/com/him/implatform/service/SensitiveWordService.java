@@ -1,12 +1,11 @@
 package com.him.implatform.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
 import com.him.implatform.entity.SensitiveWord;
 
 /**
  * 敏感词处理
  */
-public interface SensitiveWordService extends IService<SensitiveWord> {
+public interface SensitiveWordService {
 
     /**
      * 把内容中命中的敏感词替换成等长的星号。

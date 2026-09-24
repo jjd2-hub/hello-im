@@ -8,34 +8,33 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.him.imcommon.constant.IMConstant;
+import com.him.imcommon.enums.ChatType;
 import com.him.imcommon.util.BeanUtil;
 import com.him.imcommon.util.ConvUtil;
 import com.him.implatform.constant.Constant;
-import com.him.imcommon.constant.RedisKey;
 import com.him.implatform.context.UserContext;
+import com.him.implatform.converter.PrivateMessageConverter;
 import com.him.implatform.dto.ChatDeleteDTO;
 import com.him.implatform.dto.MessageDeleteDTO;
 import com.him.implatform.dto.PrivateMessageDTO;
 import com.him.implatform.dto.PrivateMessageHistoryDTO;
 import com.him.implatform.entity.PrivateMessage;
-import com.him.imcommon.enums.ChatType;
 import com.him.implatform.enums.MessageStatus;
 import com.him.implatform.enums.MessageType;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.PrivateMessageMapper;
+import com.him.implatform.redis.DistributedCounter;
+import com.him.implatform.redis.RedisKeys;
 import com.him.implatform.service.FriendService;
 import com.him.implatform.service.MessageDeletionService;
 import com.him.implatform.service.PrivateMessageService;
-import com.him.implatform.service.SensitiveWordService;
+import com.him.implatform.validator.MessageValidator;
 import com.him.implatform.vo.PrivateMessageVO;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.time.DateUtils;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -60,20 +59,18 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
 
     private final FriendService friendService;
     private final MessageDeletionService messageDeletionService;
-    private final SensitiveWordService sensitiveWordService;
+    private final MessageValidator messageValidator;
+    private final DistributedCounter counter;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     @Resource
     @Lazy
     private PrivateMessageService selfService;
-    @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
-    @Autowired
-    private RedissonClient redissonClient;
 
     @Transactional(rollbackFor = Exception.class)
     @Override
     public PrivateMessageVO sendMessage(PrivateMessageDTO dto) {
-        this.validMessage(dto);
+        messageValidator.validate(dto);
         Long userId = UserContext.getUserId();
         Boolean isFriends = friendService.isFriend(userId, dto.getRecvId());
         if (Boolean.FALSE.equals(isFriends)) {
@@ -84,16 +81,12 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         message.setSendId(userId);
         message.setStatus(MessageStatus.PENDING.getCode());
         message.setSendTime(new Date());
-        // 敏感词过滤只作用于文字消息:图片/文件等内容是JSON,整体替换会破坏结构
-        if (MessageType.TEXT.getCode().equals(dto.getType())) {
-            message.setContent(sensitiveWordService.filter(dto.getContent()));
-        }
+        // "只过滤文字消息"这个策略统一放在 MessageValidator 里,两个消息服务共用
+        message.setContent(messageValidator.filterSensitive(dto.getType(), dto.getContent()));
         selfService.saveMessage(message);
         // TODO 推送消息给接收方(im-client/im-server 完成后实现)
-        PrivateMessageVO vo = BeanUtil.copyProperties(message, PrivateMessageVO.class);
-        vo.setDeleted(false);
         log.info("发送私聊消息,发送id:{},接收id:{},内容:{}", userId, dto.getRecvId(), dto.getContent());
-        return vo;
+        return PrivateMessageConverter.toVo(message, false);
     }
 
     @Override
@@ -101,10 +94,21 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         if (StrUtil.isEmpty(message.getLocalId())) {
             message.setLocalId(IdWorker.getIdStr());
         }
-        message.setSeqNo(getNextSeqNo(message.getConvKey()));
+        String convKey = message.getConvKey();
+        message.setSeqNo(counter.next(
+                RedisKeys.privateMessageMaxSeq(convKey),
+                RedisKeys.lockPrivateMessageMaxSeq(convKey),
+                () -> {
+                    LambdaQueryWrapper<PrivateMessage> wrapper = Wrappers.<PrivateMessage>lambdaQuery();
+                    wrapper.eq(PrivateMessage::getConvKey, convKey);
+                    wrapper.orderByDesc(PrivateMessage::getSeqNo).last("limit 1");
+                    PrivateMessage last = this.getOne(wrapper);
+                    return Objects.isNull(last) || Objects.isNull(last.getSeqNo()) ? 0L : last.getSeqNo();
+                }));
         save(message);
-        String key = StrUtil.join(":", RedisKey.IM_PRIVATE_MESSAGE_MAX_ID, message.getConvKey());
-        redisTemplate.opsForValue().set(key, message.getId(), Constant.MAX_OFFLINE_MESSAGE_DAYS, TimeUnit.DAYS);
+        // 缓存会话最新消息id,离线拉取时给每个会话至少补一条最新消息
+        redisTemplate.opsForValue().set(RedisKeys.privateMessageMaxId(convKey), message.getId(),
+                Constant.MAX_OFFLINE_MESSAGE_DAYS, TimeUnit.DAYS);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -140,11 +144,9 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         message.setContent(JSON.toJSONString(contentMap));
         selfService.saveMessage(message);
         // TODO 推送撤回消息给对方(im-client/im-server 完成后实现)
-        PrivateMessageVO vo = BeanUtil.copyProperties(message, PrivateMessageVO.class);
-        vo.setDeleted(false);
         log.info("撤回私聊消息，发送id:{},接收id:{}，内容:{}", message.getSendId(), message.getRecvId(),
                 message.getContent());
-        return vo;
+        return PrivateMessageConverter.toVo(message, false);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -292,11 +294,9 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
             deletedIds.addAll(messageDeletionService.findDeletedMessageIds(
                     userId, ChatType.PRIVATE, chatId, ids));
         });
-        return messages.stream().map(m -> {
-            PrivateMessageVO vo = BeanUtil.copyProperties(m, PrivateMessageVO.class);
-            vo.setDeleted(deletedIds.contains(m.getId()));
-            return vo;
-        }).collect(Collectors.toList());
+        return messages.stream()
+                .map(m -> PrivateMessageConverter.toVo(m, deletedIds.contains(m.getId())))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -330,7 +330,7 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         if (boundary <= 0) {
             return;
         }
-        String key = StrUtil.join(":", RedisKey.IM_PRIVATE_READED_POSITION, userId);
+        String key = RedisKeys.privateReadedPosition(userId);
         String field = friendId.toString();
         Object current = redisTemplate.opsForHash().get(key, field);
         if (Objects.isNull(current) || Long.parseLong(current.toString()) < boundary) {
@@ -339,49 +339,10 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
     }
 
     private String buildMaxMessageIdKey(Long userId, Long id) {
-        return StrUtil.join(":", RedisKey.IM_PRIVATE_MESSAGE_MAX_ID, ConvUtil.buildConvKey(userId, id));
+        return RedisKeys.privateMessageMaxId(ConvUtil.buildConvKey(userId, id));
     }
 
     private Long getFriendId(Long userId, PrivateMessage m) {
         return userId.equals(m.getSendId()) ? m.getRecvId() : m.getSendId();
-    }
-
-    private Long getNextSeqNo(String convKey) {
-        String key = StrUtil.join(":", RedisKey.IM_PRIVATE_MESSAGE_MAX_SEQ, convKey);
-        // 计数器缺失时需要回填DB最大值,回填与自增必须在同一把锁内,且锁按会话隔离。
-        // 旧实现在锁外先 increment 再 delete(key),并发发送时会把其他线程已取到的值抹掉,
-        // 导致同一会话分配出重复 seq_no(库里只是普通索引,不会报错)
-        RLock lock = redissonClient.getLock(RedisKey.IM_LOCK_PRIVATE_MESSAGE_MAX_SEQ + ":" + convKey);
-        lock.lock();
-        try {
-            if (!redisTemplate.hasKey(key)) {
-                LambdaQueryWrapper<PrivateMessage> wrapper = Wrappers.<PrivateMessage>lambdaQuery();
-                wrapper.eq(PrivateMessage::getConvKey, convKey);
-                wrapper.orderByDesc(PrivateMessage::getSeqNo).last("limit 1");
-                PrivateMessage lastMessage = this.getOne(wrapper);
-                long init = (Objects.isNull(lastMessage) || Objects.isNull(lastMessage.getSeqNo()))
-                        ? 0L : lastMessage.getSeqNo();
-                redisTemplate.opsForValue().setIfAbsent(key, init);
-            }
-            return redisTemplate.opsForValue().increment(key);
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    private void validMessage(PrivateMessageDTO dto) {
-        // 文字消息-长度校验
-        if (MessageType.TEXT.getCode().equals(dto.getType()) && dto.getContent().length() > Constant.MAX_MESSAGE_LENGTH) {
-            throw new GlobalException(ResultCode.FILL_MAX_ALLOW.getCode(),
-                    String.format("消息长度不能大于%s个字符", Constant.MAX_MESSAGE_LENGTH));
-        }
-        try {
-            // 非文字消息-保证数据格式是json，防止前端报错
-            if (!MessageType.TEXT.getCode().equals(dto.getType())) {
-                JSON.parse(dto.getContent());
-            }
-        } catch (Exception e) {
-            throw new GlobalException(ResultCode.FORMAT_FAILED);
-        }
     }
 }

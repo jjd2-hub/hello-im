@@ -1,6 +1,5 @@
 package com.him.implatform.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
 import com.him.implatform.dto.ChatDeleteDTO;
 import com.him.implatform.dto.MessageDeleteDTO;
 import com.him.implatform.dto.PrivateMessageDTO;
@@ -12,7 +11,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
 
-public interface PrivateMessageService extends IService<PrivateMessage> {
+public interface PrivateMessageService {
     /**
      * 发送消息
      * @param dto 消息dto

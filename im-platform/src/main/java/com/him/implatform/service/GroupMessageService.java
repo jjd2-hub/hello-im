@@ -1,6 +1,5 @@
 package com.him.implatform.service;
 
-import com.baomidou.mybatisplus.extension.service.IService;
 import com.him.implatform.dto.ChatDeleteDTO;
 import com.him.implatform.dto.GroupMessageDTO;
 import com.him.implatform.dto.GroupMessageHistoryDTO;
@@ -12,7 +11,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
 
-public interface GroupMessageService extends IService<GroupMessage> {
+public interface GroupMessageService {
 
     /**
      * 发送群聊消息

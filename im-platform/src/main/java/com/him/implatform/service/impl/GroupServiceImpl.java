@@ -3,13 +3,15 @@ package com.him.implatform.service.impl;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.him.imcommon.util.BeanUtil;
 import com.him.implatform.constant.Constant;
-import com.him.imcommon.constant.RedisKey;
 import com.him.implatform.context.UserContext;
+import com.him.implatform.converter.GroupConverter;
+import com.him.implatform.converter.GroupMemberConverter;
+import com.him.implatform.dto.GroupCreateDTO;
 import com.him.implatform.dto.GroupDndDTO;
 import com.him.implatform.dto.GroupInviteDTO;
 import com.him.implatform.dto.GroupMemberRemoveDTO;
+import com.him.implatform.dto.GroupModifyDTO;
 import com.him.implatform.entity.Friend;
 import com.him.implatform.entity.Group;
 import com.him.implatform.entity.GroupMember;
@@ -17,6 +19,7 @@ import com.him.implatform.entity.User;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.GroupMapper;
+import com.him.implatform.redis.RedisKeys;
 import com.him.implatform.service.FriendService;
 import com.him.implatform.service.GroupMemberService;
 import com.him.implatform.service.GroupService;
@@ -27,7 +30,6 @@ import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.time.DateUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -54,15 +56,15 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
 
     @Transactional(rollbackFor = Exception.class)
     @Override
-    public GroupVO createGroup(GroupVO vo) {
+    public GroupVO createGroup(GroupCreateDTO dto) {
         Long userId = UserContext.getUserId();
-        User user = userService.getById(userId);
+        User user = userService.getUserById(userId);
         // 只接受可编辑字段,避免客户端伪造 id/ownerId/isBanned/dissolve
         Group group = new Group();
-        group.setName(vo.getName());
-        group.setHeadImage(vo.getHeadImage());
-        group.setHeadImageThumb(vo.getHeadImageThumb());
-        group.setNotice(vo.getNotice());
+        group.setName(dto.getName());
+        group.setHeadImage(dto.getHeadImage());
+        group.setHeadImageThumb(dto.getHeadImageThumb());
+        group.setNotice(dto.getNotice());
         group.setOwnerId(userId);
         group.setIsBanned(false);
         group.setDissolve(false);
@@ -74,9 +76,9 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         member.setGroupId(group.getId());
         member.setHeadImage(user.getHeadImageThumb());
         member.setUserNickName(user.getNickname());
-        member.setRemarkNickName(vo.getRemarkNickName());
-        member.setRemarkGroupName(vo.getRemarkGroupName());
-        groupMemberService.save(member);
+        member.setRemarkNickName(dto.getRemarkNickName());
+        member.setRemarkGroupName(dto.getRemarkGroupName());
+        groupMemberService.addMember(member);
         GroupVO groupVO = this.findById(group.getId());
         // TODO
         // sendAddGroupMessage()
@@ -95,32 +97,35 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         if (Objects.isNull(member)) {
             throw new GlobalException(ResultCode.YOU_NOT_IN_GROUP);
         }
-        return convert(group, member);
+        return GroupConverter.toVo(group, member);
     }
 
     @Transactional(rollbackFor = Exception.class)
     @Override
-    public GroupVO modifyGroup(GroupVO vo) {
+    public GroupVO modifyGroup(GroupModifyDTO dto) {
         Long userId = UserContext.getUserId();
-        Group group = this.getAndCheckById(vo.getId());
+        Group group = this.getAndCheckById(dto.getId());
         GroupMember member = groupMemberService.findByGroupAndUserId(group.getId(), userId);
         if (Objects.isNull(member) || Boolean.TRUE.equals(member.getQuit())) {
             throw new GlobalException(ResultCode.YOU_NOT_IN_GROUP);
         }
-        member.setRemarkNickName(vo.getRemarkNickName());
-        member.setRemarkGroupName(vo.getRemarkGroupName());
+        // 任何成员都能改自己的群内备注
+        member.setRemarkNickName(dto.getRemarkNickName());
+        member.setRemarkGroupName(dto.getRemarkGroupName());
         member.setVersion(groupMemberService.getNextVersion());
-        groupMemberService.updateById(member);
+        groupMemberService.updateMember(member);
         if (group.getOwnerId().equals(userId)) {
-            // 只有群主能改群资料,且只更新可编辑字段
-            group.setName(vo.getName());
-            group.setHeadImage(vo.getHeadImage());
-            group.setHeadImageThumb(vo.getHeadImageThumb());
-            group.setNotice(vo.getNotice());
+            // 只有群主能改群资料,且只更新"传了值"的字段(name 为空表示不改名)
+            if (StrUtil.isNotBlank(dto.getName())) {
+                group.setName(dto.getName());
+            }
+            group.setHeadImage(dto.getHeadImage());
+            group.setHeadImageThumb(dto.getHeadImageThumb());
+            group.setNotice(dto.getNotice());
             this.updateById(group);
         }
         log.info("修改群聊,id:{},名称:{}", group.getId(), group.getName());
-        return convert(group, member);
+        return GroupConverter.toVo(group, member);
     }
 
     @Override
@@ -150,8 +155,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         group.setDissolve(true);
         this.updateById(group);
         groupMemberService.removeByGroupId(groupId);
-        String key = StrUtil.join(":", RedisKey.IM_GROUP_READED_POSITION, groupId);
-        redisTemplate.delete(key);
+        redisTemplate.delete(RedisKeys.groupReadedPosition(groupId));
         String content = String.format("'%s'解散了群聊", UserContext.get().getNickname());
         // TODO
         // 推送同步消息
@@ -163,9 +167,8 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         Long userId = UserContext.getUserId();
         List<GroupMember> groupMembers;
         if (version > 0) {
-            LambdaQueryWrapper<GroupMember> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(GroupMember::getUserId, userId).gt(GroupMember::getVersion, version);
-            groupMembers = groupMemberService.list(wrapper);
+            // 查询语义收归 GroupMemberService,不再由本服务自己拼 wrapper
+            groupMembers = groupMemberService.findByUserIdAndVersion(userId, version);
         } else {
             groupMembers = groupMemberService.findByUserId(userId);
             // 60天内退的群可能存在退群前的离线消息，一并返回做前端缓存
@@ -182,7 +185,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         // 理论上 (group_id,user_id) 有唯一约束不会重复,这里兜底避免历史脏数据导致 toMap 抛异常
         Map<Long, GroupMember> map = groupMembers.stream()
                 .collect(Collectors.toMap(GroupMember::getGroupId, o -> o, (first, second) -> second));
-        return groups.stream().map(group -> convert(group, map.get(group.getId()))).toList();
+        return groups.stream().map(group -> GroupConverter.toVo(group, map.get(group.getId()))).toList();
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -231,12 +234,9 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
     public List<GroupMemberVO> findGroupMembers(Long groupId, Long version) {
         Group group = this.getById(groupId);
         List<GroupMember> members = groupMemberService.findByGroupId(groupId, version);
-        List<Long> userIds = members.stream().map(GroupMember::getUserId).distinct().toList();
-        return members.stream().map(m -> {
-            GroupMemberVO vo = BeanUtil.copyProperties(m, GroupMemberVO.class);
-            vo.setShowGroupName(StrUtil.blankToDefault(m.getRemarkGroupName(), group.getName()));
-            return vo;
-        }).toList();
+        return members.stream()
+                .map(member -> GroupMemberConverter.toVo(member, group))
+                .toList();
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -258,7 +258,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         if (!ok) {
             throw new GlobalException(ResultCode.PROGRAM_ERROR);
         }
-        String key = StrUtil.join(":", RedisKey.IM_GROUP_READED_POSITION, dto.getGroupId());
+        String key = RedisKeys.groupReadedPosition(dto.getGroupId());
         dto.getUserIds().forEach(id -> redisTemplate.opsForHash().delete(key, id.toString()));
         // TODO 推送通知和同步消息
         log.info("踢出群聊，群聊id:{},群聊名称:{},用户id:{}", group.getId(), group.getName(), dto.getUserIds());
@@ -273,7 +273,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
             throw new GlobalException(ResultCode.FILL_MAX_ALLOW.getCode(), "您没有权限");
         }
         groupMemberService.removeByGroupAndUserId(groupId);
-        String key = StrUtil.join(":", RedisKey.IM_GROUP_READED_POSITION, groupId);
+        String key = RedisKeys.groupReadedPosition(groupId);
         // 已读位置是 hash,field 是成员userId(不是群id)
         redisTemplate.opsForHash().delete(key, userId.toString());
         // TODO 推送信息群聊提示、同步消息
@@ -285,16 +285,5 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, Group> implements
         Long userId = UserContext.getUserId();
         groupMemberService.setDnd(dto.getGroupId(),userId,dto.getIsDnd());
         // TODO 推送同步消息
-    }
-
-    private GroupVO convert(Group group, GroupMember member) {
-        GroupVO vo = BeanUtil.copyProperties(group, GroupVO.class);
-        vo.setRemarkGroupName(member.getRemarkGroupName());
-        vo.setRemarkNickName(member.getRemarkNickName());
-        vo.setShowNickName(member.getShowNickName());
-        vo.setShowGroupName(StrUtil.blankToDefault(member.getRemarkGroupName(), group.getName()));
-        vo.setQuit(member.getQuit());
-        vo.setIsDnd(member.getIsDnd());
-        return vo;
     }
 }
