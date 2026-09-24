@@ -1,0 +1,39 @@
+# ============================================================
+# 集成测试专用配置
+#
+# 用法:@SpringBootTest + @ActiveProfiles("test")
+# 它会整体替换 application-dev.yml,所以这里必须写全数据源/Redis/MinIO。
+# jwt 配置在 application.yml(基础配置)里,两个 profile 共用。
+#
+# 与开发环境严格隔离,避免测试污染开发数据:
+#   MySQL : 独立库 hello_im_test (开发是 hello_im)
+#   Redis : 独立 db 15        (开发是 db 10)
+#   MinIO : 独立 bucket       (开发是 box-im)
+#
+# 首次使用需要建库并导入表结构(只需执行一次):
+#   mysql -u root -p -e "CREATE DATABASE hello_im_test CHARACTER SET utf8mb4;"
+#   mysql -u root -p hello_im_test -e "source db/create.sql"
+# MinIO 的 bucket 不需要手动建,应用启动时 FileServiceImpl.init() 会自动创建。
+# ============================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/hello_im_test?useSSL=false&useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 15
+
+minio:
+  endpoint: http://127.0.0.1:9000
+  domain: http://127.0.0.1:9000
+  accessKey: minioadmin
+  secretKey: minioadmin
+  bucketName: box-im-test
+  imagePath: image
+  filePath: file
+  videoPath: video
+  expireIn: 180

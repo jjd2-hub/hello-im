@@ -11,7 +11,7 @@ import java.util.List;
 
 @Data
 @Schema(description = "群聊消息DTO")
-public class GroupMessageDTO {
+public class GroupMessageDTO implements MessageContent {
 
     @NotEmpty(message = "本地消息id不可为空")
     @Schema(description = "本地消息id,前端通过雪花算法生成")

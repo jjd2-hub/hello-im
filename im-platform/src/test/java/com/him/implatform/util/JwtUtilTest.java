@@ -87,4 +87,24 @@ class JwtUtilTest {
         String result = JwtUtil.sign(USER_ID, INFO, 1800, null);
         assertNull(result);
     }
+
+    @Test
+    @DisplayName("sign - 带版本号签名后可解析出相同版本号")
+    void sign_withTokenVersion_shouldBeReadable() {
+        String token = JwtUtil.sign(USER_ID, INFO, 1800, SECRET, 7);
+        assertEquals(7, JwtUtil.getTokenVersion(token));
+    }
+
+    @Test
+    @DisplayName("sign - 不传版本号时版本号为0")
+    void sign_withoutTokenVersion_shouldDefaultToZero() {
+        String token = JwtUtil.sign(USER_ID, INFO, 1800, SECRET);
+        assertEquals(0, JwtUtil.getTokenVersion(token));
+    }
+
+    @Test
+    @DisplayName("getTokenVersion - 无效token返回null")
+    void getTokenVersion_withInvalidToken_shouldReturnNull() {
+        assertNull(JwtUtil.getTokenVersion("invalid.token.here"));
+    }
 }

@@ -37,4 +37,11 @@ public class AuthController {
     public Result<LoginVO> refreshToken(@RequestHeader("refreshToken") String token) {
         return Result.success(userService.refreshToken(token));
     }
+
+    @Operation(summary = "退出登录")
+    @PostMapping("/logout")
+    public Result<?> logout() {
+        userService.logout();
+        return Result.success();
+    }
 }

@@ -11,6 +11,18 @@
     <modelVersion>4.0.0</modelVersion>
 
     <dependencies>
+        <!--
+            契约与推送 SDK 依赖。
+            im-common 里放着跨模块共用的 Redis key、枚举和推送信封(IMPushMessage),
+            platform 直接用到这些类,所以必须显式声明依赖,不能靠 im-client 传递依赖——
+            否则哪天调整了 im-client 的依赖,platform 会以"找不到类"的方式突然编不过。
+            im-client 是"与 im-server 通信的推送 SDK",platform 通过它投递消息。
+        -->
+        <dependency>
+            <groupId>com.him</groupId>
+            <artifactId>im-common</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
         <dependency>
             <groupId>com.him</groupId>
             <artifactId>im-client</artifactId>
@@ -102,6 +114,35 @@
                     <execution>
                         <goals>
                             <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+                测试分层约定:
+                  *Test.java -> 单元测试(Mockito,不需要任何中间件),由 surefire 在 mvn test 阶段执行
+                  *IT.java   -> 集成测试(需要真实 MySQL/Redis/MinIO),由 failsafe 在 mvn verify 阶段执行
+                这样 mvn test 永远是秒级且零依赖,谁 clone 下来都能立刻跑;
+                需要中间件的测试统一放到 mvn verify,本地和 CI 都不会误伤。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
                         </goals>
                     </execution>
                 </executions>

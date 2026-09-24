@@ -6,10 +6,12 @@ import com.him.implatform.context.UserContext;
 import com.him.implatform.dto.LoginDTO;
 import com.him.implatform.dto.ModifyPwdDTO;
 import com.him.implatform.dto.RegisterDTO;
+import com.him.implatform.dto.UserUpdateDTO;
 import com.him.implatform.entity.User;
 import com.him.implatform.enums.ResultCode;
 import com.him.implatform.exception.GlobalException;
 import com.him.implatform.mapper.UserMapper;
+import com.him.implatform.service.TokenVersionService;
 import com.him.implatform.service.impl.UserServiceImpl;
 import com.him.implatform.session.UserSession;
 import com.him.implatform.vo.UserVO;
@@ -47,6 +49,9 @@ class UserServiceImplTest {
 
     @Mock
     private JwtProperties jwtProperties;
+
+    @Mock
+    private TokenVersionService tokenVersionService;
 
     @InjectMocks
     private UserServiceImpl userService;
@@ -324,17 +329,17 @@ class UserServiceImplTest {
     // ==================== update 修改用户信息 ====================
 
     @Test
-    @DisplayName("修改用户信息 - 用户存在应成功")
-    void update_userExists_shouldSuccess() {
+    @DisplayName("修改用户信息 - 修改自己应成功")
+    void update_operateSelf_shouldSuccess() {
         UserSession session = new UserSession();
-        session.setUserId(2L); // 当前登录用户是2
+        session.setUserId(1L); // 当前登录用户是1
         UserContext.set(session);
 
-        UserVO vo = new UserVO();
-        vo.setId(1L); // 要修改的用户是1
-        vo.setNickname("新昵称");
-        vo.setSex(1);
-        vo.setSignature("新签名");
+        UserUpdateDTO dto = new UserUpdateDTO();
+        dto.setId(1L); // 只能修改自己
+        dto.setNickname("新昵称");
+        dto.setSex(1);
+        dto.setSignature("新签名");
 
         User user = new User();
         user.setId(1L);
@@ -343,22 +348,22 @@ class UserServiceImplTest {
         when(userMapper.selectById(1L)).thenReturn(user);
         when(userMapper.updateById(any(User.class))).thenReturn(1);
 
-        assertDoesNotThrow(() -> userService.update(vo));
+        assertDoesNotThrow(() -> userService.update(dto));
 
         verify(userMapper, times(1)).updateById(any(User.class));
     }
 
     @Test
-    @DisplayName("修改用户信息 - 不能修改自己的信息应抛异常")
-    void update_operateSelf_shouldThrowException() {
+    @DisplayName("修改用户信息 - 修改别人应抛异常")
+    void update_operateOtherUser_shouldThrowException() {
         UserSession session = new UserSession();
-        session.setUserId(1L); // 当前登录用户是1
+        session.setUserId(2L); // 当前登录用户是2
         UserContext.set(session);
 
-        UserVO vo = new UserVO();
-        vo.setId(1L); // 要修改的用户也是1（自己）
+        UserUpdateDTO dto = new UserUpdateDTO();
+        dto.setId(1L); // 试图修改用户1(不是自己),属于越权
 
-        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(vo));
+        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(dto));
         assertEquals(ResultCode.CAN_OPERATE_OTHER_USER.getCode(), ex.getCode());
 
         verify(userMapper, never()).updateById(any(User.class));
@@ -371,12 +376,12 @@ class UserServiceImplTest {
         session.setUserId(2L);
         UserContext.set(session);
 
-        UserVO vo = new UserVO();
-        vo.setId(999L);
+        UserUpdateDTO dto = new UserUpdateDTO();
+        dto.setId(2L); // 修改自己,但库里查不到该用户
 
-        when(userMapper.selectById(999L)).thenReturn(null);
+        when(userMapper.selectById(2L)).thenReturn(null);
 
-        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(vo));
+        GlobalException ex = assertThrows(GlobalException.class, () -> userService.update(dto));
         assertEquals(ResultCode.USER_NOT_EXISTS.getCode(), ex.getCode());
     }
 }

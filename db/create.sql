@@ -29,7 +29,8 @@ create table `im_friend`
     `create_time`      datetime     default current_timestamp comment '创建时间',
     `version`           BIGINT       DEFAULT 0 comment '版本号',
     UNIQUE KEY `idx_user_friend_id` (`user_id`, `friend_id`),
-    key                 `idx_friend_id` (`friend_id`)
+    key                 `idx_friend_id` (`friend_id`),
+    key                 `idx_user_version` (`user_id`, `version`)
 ) engine = innodb charset = utf8mb4 comment '好友';
 
 create table `im_file_info`
@@ -59,9 +60,10 @@ create table `im_private_message`
     `type`      tinyint     not null comment '消息类型 0:文字 1:图片 2:文件 3:语音 4:视频 21:提示',
     `status`    tinyint     not null comment '状态 0:未读 1:已发送 2:撤回 3:已读',
     `send_time` datetime(3) default current_timestamp(3) comment '发送时间',
-    key         `idx_conv_key_seq_no`(`conv_key`,`seq_no`),
+    unique key  `uk_conv_key_seq_no`(`conv_key`,`seq_no`),
+    unique key  `uk_send_local_id` (`send_id`, `local_id`),
     key         `idx_send_recv_id` (`send_id`, `recv_id`,`id`),
-    key         `idx_recv_id` (`recv_id`)
+    key         `idx_recv_id` (`recv_id`,`id`)
 ) engine = innodb charset = utf8mb4 comment '私聊消息';
 
 create table `im_group`
@@ -92,8 +94,9 @@ create table `im_group_member`
     `quit_time`         datetime     default null comment '退出时间',
     `create_time`      datetime     default current_timestamp comment '创建时间',
     `version`           bigint       default 0 comment '版本号',
-    key                 `idx_group_id` (`group_id`),
-    key                 `idx_user_id` (`user_id`)
+    unique key          `uk_group_id_user_id` (`group_id`, `user_id`),
+    key                 `idx_group_id_version` (`group_id`, `version`),
+    key                 `idx_user_id_version` (`user_id`, `version`)
 ) engine = innodb charset = utf8mb4 comment '群成员';
 
 create table `im_group_message`
@@ -111,7 +114,7 @@ create table `im_group_message`
     `type`           tinyint not null comment '消息类型 0:文字 1:图片 2:文件 3:语音 4:视频 21:提示',
     `status`         tinyint      default 0 comment '状态 0:未发出  2:撤回 ',
     `send_time`      datetime(3) default current_timestamp(3) comment '发送时间',
-    key              `idx_group_id_seq_no` (`group_id`,`seq_no`)
+    unique key       `uk_group_id_seq_no` (`group_id`,`seq_no`)
 ) engine = innodb charset = utf8mb4 comment '群消息';
 
 create table `im_message_deletion`
@@ -123,7 +126,7 @@ create table `im_message_deletion`
     `message_id`  bigint(20) comment '消息id',
     `delete_type` tinyint not null comment '删除类型 1:按消息删除 2:按会话删除',
     `delete_time` datetime default current_timestamp comment '消息删除时间',
-    key           `idx_user_id` (`user_id`)
+    key           `idx_user_chat` (`user_id`, `chat_type`, `chat_id`)
 ) engine = innodb charset = utf8mb4 comment '消息删除记录';
 
 create table `im_sensitive_word`
@@ -132,5 +135,6 @@ create table `im_sensitive_word`
     `content`     varchar(64) not null comment '敏感词内容',
     `enabled`     tinyint(1) default 0 comment '是否启用 0:未启用 1:启用',
     `creator`     bigint   default null comment '创建者',
-    `create_time` datetime default current_timestamp comment '创建时间'
+    `create_time` datetime default current_timestamp comment '创建时间',
+    unique key    `uk_content` (`content`)
 ) engine = innodb charset = utf8mb4 comment '敏感词';

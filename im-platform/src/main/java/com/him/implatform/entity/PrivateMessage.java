@@ -34,7 +34,7 @@ public class PrivateMessage {
     private Long recvId;
 
     /**
-     * 会话key, 格式:userId1_userId2,注意跟前端的conv_key格式不一致
+     * 会话key, 格式:userId1_userId2(小的id在前),统一由ConvUtil.buildConvKey生成
      */
     private String convKey;
 
