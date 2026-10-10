@@ -1,6 +1,10 @@
 package com.him.imclient;
 
 import com.him.imclient.sender.IMSender;
+import com.him.imcommon.model.IMBatchPrivateMessage;
+import com.him.imcommon.model.IMGroupMessage;
+import com.him.imcommon.model.IMPrivateMessage;
+import com.him.imcommon.model.IMSystemMessage;
 import lombok.AllArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 
@@ -40,6 +44,42 @@ public class IMClient {
      */
     public void forceLogout(Long userId, Integer type, String reason){
         imSender.forceLogout(userId, type, reason);
+    }
+
+    /**
+     * 发送系统消息（发送结果通过MessageListener接收）
+     *
+     * @param message 私有消息
+     */
+    public<T> void sendSystemMessage(IMSystemMessage<T> message){
+        imSender.sendSystemMessage(message);
+    }
+
+    /**
+     * 发送私聊消息（发送结果通过MessageListener接收）
+     *
+     * @param message 私有消息
+     */
+    public<T> void sendPrivateMessage(IMPrivateMessage<T> message){
+        imSender.sendPrivateMessage(message);
+    }
+
+    /**
+     * 批量发送私聊消息（发送结果通过MessageListener接收）
+     *
+     * @param message 私有消息
+     */
+    public<T> void sendBatchPrivateMessage(IMBatchPrivateMessage<T> message){
+        imSender.sendBatchPrivateMessage(message);
+    }
+
+    /**
+     * 发送群聊消息（发送结果通过MessageListener接收）
+     *
+     * @param message 群聊消息
+     */
+    public<T> void sendGroupMessage(IMGroupMessage<T> message){
+        imSender.sendGroupMessage(message);
     }
 
 
