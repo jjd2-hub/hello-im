@@ -9,10 +9,8 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 public enum IMTerminalType {
 
-    /**
-     * web
-     */
-    WEB(0, "web");
+    WEB(0, "web"),
+    APP(1, "app");
 
     private final Integer code;
 
