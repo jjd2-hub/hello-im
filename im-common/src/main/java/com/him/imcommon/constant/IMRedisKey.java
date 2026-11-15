@@ -45,4 +45,19 @@ public final class IMRedisKey {
      */
     public static final String IM_RESULT_GROUP_QUEUE = "im:result:group";
 
+    /**
+     * im-server最大id,从0开始递增
+     */
+    public static final String  IM_MAX_SERVER_ID = "im:max_server_id";
+
+    /**
+     * 用户事件队列
+     */
+    public static final String IM_USER_EVENT_QUEUE = "im:user:event";
+
+    /**
+     * 用户拒绝访问标记（封禁/注销等，鉴权与 WS 登录拦截用）
+     * value 为 {@link com.him.imcommon.enums.IMForceLogoutType} 的 code
+     */
+    public static final String IM_USER_DENIED = "im:user:denied";
 }
